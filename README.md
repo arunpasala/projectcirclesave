@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
@@ -34,3 +35,24 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+=======
+"# CircleSave" 
+
+# 🔌 Top VS Code Extensions with Author Info
+
+| **Extension Name**        | **Author / Publisher**     | **Purpose / Use Case**                                      |
+|---------------------------|-----------------------------|--------------------------------------------------------------|
+| Python                    | Microsoft                   | Core Python support: IntelliSense, linting, debugging        |
+| Prettier - Code Formatter | Prettier                    | Auto-formatting for JS, HTML, CSS, Python, etc.             |
+| ESLint                    | Dirk Baeumer                | JavaScript/React linting and error checking                 |
+| GitLens                   | GitKraken                   | Git insights, blame annotations, commit history             |
+| Live Server               | Ritwick Dey                 | Launches dev server with auto-reload for HTML/CSS/JS        |
+| Docker                    | Microsoft                   | Dockerfile syntax, container management                     |
+| REST Client               | Huachao Mao                 | Test RESTful APIs directly from VS Code                     |
+| React Snippets            | Charalampos Karypidis       | Fast coding with React component templates                  |
+| Django                    | Baptiste Darthenay          | Django snippets and support                                 |
+| SQLTools                  | Matheus Teixeira            | Connect to PostgreSQL, MySQL, and other databases           |
+| GitHub Copilot            | GitHub                      | AI-powered code suggestions and completions                 |
+| Remote - SSH              | Microsoft                   | Edit and deploy code on remote servers via SSH              |
+| Dev Containers            | Microsoft                   | Containerized dev environments for consistent setup         |
+>>>>>>> e469eb0cc26502ace145c065cae3bdb4aab25181
