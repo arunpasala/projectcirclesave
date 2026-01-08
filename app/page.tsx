@@ -17,6 +17,7 @@ export default function HomePage() {
             <a href="#features" className="hover:text-slate-600">Features</a>
             <a href="#safety" className="hover:text-slate-600">Safety</a>
             <a href="#faq" className="hover:text-slate-600">FAQ</a>
+            <a href="">SignUp</a>
           </nav>
 
           <div className="flex items-center gap-2">
