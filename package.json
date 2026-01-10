@@ -9,10 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "react": "19.2.3",
-    "pg": "8.11.3",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.3",
+    "react": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
