@@ -1,132 +1,144 @@
-// src/app/page.tsx
 import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-white text-slate-900">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
+    <main className="min-h-screen bg-[#f0f2f5] text-gray-900">
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b border-gray-200 bg-[#f0f2f5]/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-slate-900" />
-            <span className="text-lg font-semibold tracking-tight">CircleSave</span>
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#1877F2] text-white font-extrabold shadow-[0_12px_28px_rgba(24,119,242,0.25)]">
+              C
+            </div>
+            <span className="text-lg font-extrabold tracking-tight">CircleSave</span>
           </div>
 
-          <nav className="hidden items-center gap-6 text-sm md:flex">
-            <a href="#how" className="hover:text-slate-600">How it works</a>
-            <a href="#features" className="hover:text-slate-600">Features</a>
-            <a href="#safety" className="hover:text-slate-600">Safety</a>
-            <a href="#faq" className="hover:text-slate-600">FAQ</a>
-            <Link href="/login" className="hover:text-slate-600">Login</Link>
-            <Link href="/signup" className="hover:text-slate-600">Sign Up</Link>
+          <nav className="hidden items-center gap-6 text-sm font-semibold text-gray-700 md:flex">
+            <a href="#how" className="hover:text-gray-500">How it works</a>
+            <a href="#features" className="hover:text-gray-500">Features</a>
+            <a href="#safety" className="hover:text-gray-500">Safety</a>
+            <a href="#faq" className="hover:text-gray-500">FAQ</a>
+            <Link href="/login" className="hover:text-gray-500">Login</Link>
+            <Link href="/signup" className="hover:text-gray-500">Sign Up</Link>
           </nav>
 
-          <div className="flex items-center gap-2">
-            <Link
-              href="#cta"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              Join the beta
-            </Link>
-          </div>
+          <a
+            href="#cta"
+            className="rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-extrabold text-white shadow-[0_12px_28px_rgba(24,119,242,0.25)] hover:opacity-95"
+          >
+            Join the beta
+          </a>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="mx-auto max-w-6xl px-4 py-16 md:py-24">
-        <div className="grid gap-10 md:grid-cols-2 md:items-center">
-          <div>
-            <p className="inline-flex items-center rounded-full border px-3 py-1 text-xs text-slate-700">
-              Private • Invite-only • Community savings
-            </p>
+      {/* HERO (same theme as login/signup) */}
+      <section className="mx-auto max-w-6xl px-4 py-10 md:py-14">
+        <div className="grid items-center gap-10 md:grid-cols-2">
+          {/* Left side: hide on small screens */}
+          <div className="hidden md:block">
+            <div className="flex items-center gap-4">
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-[#1877F2] text-white text-2xl font-extrabold shadow-[0_14px_34px_rgba(24,119,242,0.25)]">
+                C
+              </div>
+              <div>
+                <div className="text-xl font-extrabold">CircleSave</div>
+                <div className="mt-1 text-sm text-gray-600">
+                  Private • Invite-only • Community savings
+                </div>
+              </div>
+            </div>
 
-            <h1 className="mt-4 text-4xl font-bold tracking-tight md:text-5xl">
-              Save together. <span className="text-slate-600">Get a lump sum.</span> No interest. No loans.
+            <h1 className="mt-6 text-5xl font-extrabold leading-[1.05] tracking-tight">
+              Save together.{" "}
+              <span className="text-[#1877F2]">Get a lump sum.</span>{" "}
+              No interest. No loans.
             </h1>
 
-            <p className="mt-4 text-base leading-relaxed text-slate-600">
-              CircleSave helps trusted groups run savings circles (ROSCA/chit/tanda/susu) with transparency,
-              reminders, and simple tracking — without the platform ever holding your money.
+            <p className="mt-4 max-w-xl text-base leading-relaxed text-gray-600">
+              CircleSave helps trusted groups run savings circles (ROSCA / chit / tanda / susu)
+              with transparency, reminders, and simple tracking — without the platform ever holding your money.
             </p>
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <a
-                href="#cta"
-                className="rounded-xl bg-slate-900 px-5 py-3 text-center text-sm font-medium text-white hover:bg-slate-800"
-              >
-                Request access
-              </a>
-              <a
-                href="#how"
-                className="rounded-xl border px-5 py-3 text-center text-sm font-medium hover:bg-slate-50"
-              >
-                See how it works
-              </a>
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-3 text-xs text-slate-500">
-              <span className="rounded-full border px-3 py-1">No custody of funds</span>
-              <span className="rounded-full border px-3 py-1">No interest</span>
-              <span className="rounded-full border px-3 py-1">Invite-only circles</span>
-            </div>
-          </div>
-
-          {/* Simple “mock” card */}
-          <div className="rounded-3xl border bg-slate-50 p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">Example Circle</p>
-                <p className="text-xs text-slate-600">Monthly: $200 • Members: 6</p>
-              </div>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700">
-                Month 2 / 6
-              </span>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              {[
-                { name: "Arun", status: "Paid" },
-                { name: "Sam", status: "Paid" },
-                { name: "Priya", status: "Pending" },
-                { name: "Leo", status: "Paid" },
-              ].map((m) => (
-                <div key={m.name} className="flex items-center justify-between rounded-2xl bg-white p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-full bg-slate-200" />
-                    <div>
-                      <p className="text-sm font-medium">{m.name}</p>
-                      <p className="text-xs text-slate-500">Contribution</p>
-                    </div>
-                  </div>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${
-                      m.status === "Paid"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {m.status}
-                  </span>
-                </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {["No custody of funds", "Invite-only circles", "Transparent payouts"].map((t) => (
+                <span
+                  key={t}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-extrabold text-gray-700 shadow-sm"
+                >
+                  {t}
+                </span>
               ))}
             </div>
 
-            <div className="mt-6 rounded-2xl border bg-white p-4">
-              <p className="text-xs text-slate-500">Next payout</p>
-              <p className="text-sm font-semibold">Priya • Feb 1</p>
-              <p className="mt-2 text-xs text-slate-600">
-                Everyone pays the recipient directly. CircleSave only tracks status.
+            {/* Decorative cards (optional, matches theme) */}
+            <div className="relative mt-8 h-56">
+              <div className="absolute left-14 top-0 h-44 w-[22rem] rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-100 to-blue-200 shadow-[0_18px_50px_rgba(0,0,0,0.12)]" />
+              <div className="absolute left-0 top-10 h-36 w-64 rounded-2xl border border-gray-200 bg-white shadow-[0_10px_30px_rgba(0,0,0,0.08)]" />
+              <div className="absolute left-8 top-36 h-28 w-80 rounded-2xl border border-gray-200 bg-white shadow-[0_12px_35px_rgba(0,0,0,0.10)]" />
+
+              <div className="absolute left-64 top-10 rounded-full bg-[#1877F2] px-4 py-2 text-sm font-extrabold text-white shadow-[0_10px_25px_rgba(24,119,242,0.25)]">
+                Trusted
+              </div>
+
+              <div className="absolute left-56 top-40 grid h-16 w-16 place-items-center rounded-full border border-gray-200 bg-white shadow-[0_10px_25px_rgba(0,0,0,0.10)]">
+                <div className="grid h-12 w-12 place-items-center rounded-full bg-[#1877F2] text-white text-xl font-extrabold">
+                  🙂
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right side card: like login/signup */}
+          <div className="mx-auto w-full max-w-md">
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_18px_45px_rgba(0,0,0,0.10)]">
+              <h2 className="text-2xl font-extrabold">Get started</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Create a private circle, invite members, track contributions, and keep everything transparent.
+              </p>
+
+              <div className="mt-5 flex flex-col gap-3">
+                <Link
+                  href="/signup"
+                  className="w-full rounded-xl bg-[#1877F2] py-3 text-center text-base font-extrabold text-white shadow-[0_12px_28px_rgba(24,119,242,0.25)] hover:opacity-95"
+                >
+                  Create an account
+                </Link>
+
+                <Link
+                  href="/login"
+                  className="w-full rounded-xl border border-gray-300 bg-white py-3 text-center text-base font-extrabold text-gray-900 hover:bg-gray-50"
+                >
+                  I already have an account
+                </Link>
+              </div>
+
+              <div className="my-5 flex items-center gap-3">
+                <div className="h-px flex-1 bg-gray-200" />
+                <span className="text-xs font-extrabold text-gray-400">or</span>
+                <div className="h-px flex-1 bg-gray-200" />
+              </div>
+
+              <a href="#how" className="block text-center text-sm font-extrabold text-[#1877F2] hover:underline">
+                See how it works
+              </a>
+
+              <p className="mt-4 text-xs leading-relaxed text-gray-500">
+                CircleSave does not hold money. Members pay the recipient directly. The platform tracks status only.
               </p>
             </div>
+
+            <p className="mt-4 text-center text-sm text-gray-600">
+              Security-first MVP • OTP verification • JWT auth • DB integrity
+            </p>
           </div>
         </div>
       </section>
 
       {/* How it works */}
-      <section id="how" className="border-t bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-16">
-          <h2 className="text-2xl font-bold tracking-tight">How a savings circle works</h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+      <section id="how" className="border-t border-gray-200 bg-[#f0f2f5]">
+        <div className="mx-auto max-w-6xl px-4 py-12">
+          <h2 className="text-2xl font-extrabold tracking-tight">How a savings circle works</h2>
+          <p className="mt-2 max-w-2xl text-sm text-gray-600">
             A simple, trust-based way to help each member receive a lump sum once — without interest or loans.
           </p>
 
@@ -145,9 +157,12 @@ export default function HomePage() {
                 desc: "Repeat monthly until everyone has received once. Progress is transparent to all members.",
               },
             ].map((s) => (
-              <div key={s.title} className="rounded-3xl border p-6 shadow-sm">
-                <p className="text-sm font-semibold">{s.title}</p>
-                <p className="mt-2 text-sm text-slate-600">{s.desc}</p>
+              <div
+                key={s.title}
+                className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_10px_28px_rgba(0,0,0,0.08)]"
+              >
+                <p className="text-sm font-extrabold">{s.title}</p>
+                <p className="mt-2 text-sm text-gray-600">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -155,45 +170,49 @@ export default function HomePage() {
       </section>
 
       {/* Features */}
-      <section id="features" className="border-t bg-slate-50">
-        <div className="mx-auto max-w-6xl px-4 py-16">
-          <h2 className="text-2xl font-bold tracking-tight">MVP features</h2>
+      <section id="features" className="border-t border-gray-200 bg-[#f0f2f5]">
+        <div className="mx-auto max-w-6xl px-4 py-12">
+          <h2 className="text-2xl font-extrabold tracking-tight">MVP features</h2>
+
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {[
-              ["Passwordless login", "Email OTP for low-friction onboarding."],
-              ["Invite-only circles", "Private links and transparent rules before joining."],
+              ["OTP verification", "Email OTP for low-friction onboarding."],
+              ["Invite-only circles", "Private joining with clear rules before participation."],
               ["Status dashboard", "Paid / pending tracking, month progress, next payout."],
-              ["Notifications", "Due reminders, payment confirmations, payout alerts."],
+              ["Notifications", "Due reminders, confirmations, and payout alerts."],
               ["Dispute handling", "Manual admin intervention early stage if needed."],
               ["Compliance-first design", "Not a bank, lender, wallet, or custodian."],
             ].map(([t, d]) => (
-              <div key={t} className="rounded-3xl border bg-white p-6 shadow-sm">
-                <p className="text-sm font-semibold">{t}</p>
-                <p className="mt-2 text-sm text-slate-600">{d}</p>
+              <div
+                key={t}
+                className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_10px_28px_rgba(0,0,0,0.08)]"
+              >
+                <p className="text-sm font-extrabold">{t}</p>
+                <p className="mt-2 text-sm text-gray-600">{d}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Safety / positioning */}
-      <section id="safety" className="border-t bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-16">
-          <h2 className="text-2xl font-bold tracking-tight">Safety & positioning</h2>
+      {/* Safety */}
+      <section id="safety" className="border-t border-gray-200 bg-[#f0f2f5]">
+        <div className="mx-auto max-w-6xl px-4 py-12">
+          <h2 className="text-2xl font-extrabold tracking-tight">Safety & positioning</h2>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <div className="rounded-3xl border p-6 shadow-sm">
-              <p className="text-sm font-semibold">What CircleSave is</p>
-              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-600">
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_10px_28px_rgba(0,0,0,0.08)]">
+              <p className="text-sm font-extrabold">What CircleSave is</p>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-600">
                 <li>A coordination + transparency tool</li>
                 <li>A reminder and tracking system</li>
                 <li>Community-driven savings organizer</li>
               </ul>
             </div>
 
-            <div className="rounded-3xl border p-6 shadow-sm">
-              <p className="text-sm font-semibold">What CircleSave is not</p>
-              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-600">
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_10px_28px_rgba(0,0,0,0.08)]">
+              <p className="text-sm font-extrabold">What CircleSave is not</p>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-600">
                 <li>Not a bank</li>
                 <li>Not a lender</li>
                 <li>Not an investment product</li>
@@ -202,7 +221,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          <p className="mt-6 text-xs leading-relaxed text-slate-500">
+          <p className="mt-6 text-xs leading-relaxed text-gray-500">
             Disclaimer: CircleSave does not hold funds, guarantee payments, or provide loans. Participation is voluntary
             and based on trust among members.
           </p>
@@ -210,9 +229,9 @@ export default function HomePage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="border-t bg-slate-50">
-        <div className="mx-auto max-w-6xl px-4 py-16">
-          <h2 className="text-2xl font-bold tracking-tight">FAQ</h2>
+      <section id="faq" className="border-t border-gray-200 bg-[#f0f2f5]">
+        <div className="mx-auto max-w-6xl px-4 py-12">
+          <h2 className="text-2xl font-extrabold tracking-tight">FAQ</h2>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {[
@@ -233,9 +252,12 @@ export default function HomePage() {
                 a: "After the web MVP validates real circles. The backend APIs will support mobile apps later.",
               },
             ].map((f) => (
-              <div key={f.q} className="rounded-3xl border bg-white p-6 shadow-sm">
-                <p className="text-sm font-semibold">{f.q}</p>
-                <p className="mt-2 text-sm text-slate-600">{f.a}</p>
+              <div
+                key={f.q}
+                className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_10px_28px_rgba(0,0,0,0.08)]"
+              >
+                <p className="text-sm font-extrabold">{f.q}</p>
+                <p className="mt-2 text-sm text-gray-600">{f.a}</p>
               </div>
             ))}
           </div>
@@ -243,11 +265,11 @@ export default function HomePage() {
       </section>
 
       {/* CTA */}
-      <section id="cta" className="border-t bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-16">
-          <div className="rounded-3xl border bg-slate-900 p-8 text-white md:p-10">
-            <h2 className="text-2xl font-bold tracking-tight">Join the private beta</h2>
-            <p className="mt-2 max-w-2xl text-sm text-white/80">
+      <section id="cta" className="border-t border-gray-200 bg-[#f0f2f5]">
+        <div className="mx-auto max-w-6xl px-4 py-12">
+          <div className="rounded-2xl bg-gray-900 p-8 text-white shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+            <h2 className="text-2xl font-extrabold tracking-tight">Join the private beta</h2>
+            <p className="mt-2 max-w-2xl text-sm text-white/75">
               Get early access to CircleSave for your trusted group. Invite-only. No fees during the pilot.
             </p>
 
@@ -257,7 +279,7 @@ export default function HomePage() {
                 placeholder="Your email"
                 className="w-full rounded-xl bg-white/10 px-4 py-3 text-sm text-white placeholder:text-white/60 outline-none ring-1 ring-white/15 focus:ring-2"
               />
-              <button className="rounded-xl bg-white px-5 py-3 text-sm font-medium text-slate-900 hover:bg-white/90">
+              <button className="rounded-xl bg-white px-5 py-3 text-sm font-extrabold text-gray-900 hover:bg-white/90">
                 Request access
               </button>
             </div>
@@ -270,12 +292,10 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-8 text-xs text-slate-500">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <p>© {new Date().getFullYear()} CircleSave. All rights reserved.</p>
-            <p>Coordination platform only — no custody, no loans, no guarantees.</p>
-          </div>
+      <footer className="border-t border-gray-200 bg-[#f0f2f5]">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-8 text-xs text-gray-500 md:flex-row md:items-center md:justify-between">
+          <p>© {new Date().getFullYear()} CircleSave. All rights reserved.</p>
+          <p>Coordination platform only — no custody, no loans, no guarantees.</p>
         </div>
       </footer>
     </main>
