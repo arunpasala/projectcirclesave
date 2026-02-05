@@ -1,58 +1,216 @@
-<<<<<<< HEAD
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+💰 CircleSave — Secure Digital Savings Circles (ROSCA)
 
-## Getting Started
+CircleSave is a full-stack web application that enables users to create and participate in digital savings circles (ROSCA) with a strong focus on security, trust, and fairness.
+The system supports authenticated users, OTP-based verification, secure contributions, and controlled payouts, designed as a graduate-level capstone project.
 
-First, run the development server:
+🎯 Project Goals
 
-```bash
+Build a production-style full-stack system
+
+Digitize savings circles with transparency and trust
+
+Apply security-first design principles
+
+Demonstrate graduate-level system design, threat modeling, and validation
+
+🧱 System Architecture
+Next.js (Frontend)
+        ↓
+Next.js API Routes (Backend)
+        ↓
+PostgreSQL (Docker)
+
+Key Characteristics
+
+API-driven architecture
+
+JWT-based authentication
+
+OTP verification for trust
+
+Database-enforced integrity
+
+Role-aware access control
+
+🛠 Tech Stack
+Frontend
+
+Next.js (App Router)
+
+TypeScript
+
+CSS (custom styling)
+
+Backend
+
+Next.js API Routes
+
+JWT Authentication
+
+bcrypt for password hashing
+
+OTP generation & verification
+
+Database
+
+PostgreSQL 16
+
+Running via Docker
+
+SQL-enforced constraints
+
+🔐 Security Features
+
+Password hashing using bcrypt
+
+JWT-based session authentication
+
+OTP verification for account activation
+
+Authorization middleware for protected routes
+
+Database-level integrity constraints
+
+Explicit trust boundaries between client, API, and database
+
+✨ Core Features
+✅ Authentication
+
+User signup with email & password
+
+OTP verification via email
+
+Secure login with JWT
+
+Logout support
+
+🔁 Savings Circles
+
+Create a savings circle
+
+Join an existing circle
+
+View circles a user belongs to
+
+Owner-based permissions
+
+📊 Dashboard
+
+User dashboard
+
+Auth-protected routes
+
+Token-based session handling
+
+🗂 Project Structure
+app/
+ ├── api/
+ │   ├── auth/
+ │   │   ├── login/
+ │   │   ├── signup/
+ │   │   └── otp/
+ │   ├── circles/
+ │   │   ├── create/
+ │   │   ├── join/
+ │   │   └── my/
+ │   └── db-check/
+ ├── login/
+ ├── signup/
+ ├── dashboard/
+ └── globals.css
+
+lib/
+ └── auth.ts
+
+🚀 Getting Started
+1️⃣ Clone the repository
+git clone https://github.com/arunpasala/projectcirclesave.git
+cd projectcirclesave
+
+2️⃣ Install dependencies
+npm install
+
+3️⃣ Start PostgreSQL (Docker)
+docker run --name circlesave_db \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=circlesave \
+  -p 5432:5432 \
+  -d postgres:16
+
+4️⃣ Create database tables
+
+Connect to Postgres:
+
+docker exec -it circlesave_db psql -U postgres -d circlesave
+
+
+Create tables:
+
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  full_name TEXT,
+  password_hash TEXT NOT NULL,
+  is_verified BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE otp_codes (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  otp_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+5️⃣ Start the app
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Open:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+http://localhost:3000
 
-## Learn More
+🧪 API Testing (Example)
+Invoke-RestMethod `
+  -Uri http://localhost:3000/api/auth/login `
+  -Method POST `
+  -Headers @{ "Content-Type"="application/json" } `
+  -Body '{"email":"test@gmail.com","password":"Pass@1234"}'
 
-To learn more about Next.js, take a look at the following resources:
+📚 Academic Context
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Course: Graduate Capstone / Software Engineering
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Focus Areas:
 
-## Deploy on Vercel
+Secure system design
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Threat modeling (STRIDE)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-=======
-"# CircleSave" 
+Trust and fairness analysis
 
-# 🔌 Top VS Code Extensions with Author Info
+Concurrency & transaction safety
 
-| **Extension Name**        | **Author / Publisher**     | **Purpose / Use Case**                                      |
-|---------------------------|-----------------------------|--------------------------------------------------------------|
-| Python                    | Microsoft                   | Core Python support: IntelliSense, linting, debugging        |
-| Prettier - Code Formatter | Prettier                    | Auto-formatting for JS, HTML, CSS, Python, etc.             |
-| ESLint                    | Dirk Baeumer                | JavaScript/React linting and error checking                 |
-| GitLens                   | GitKraken                   | Git insights, blame annotations, commit history             |
-| Live Server               | Ritwick Dey                 | Launches dev server with auto-reload for HTML/CSS/JS        |
-| Docker                    | Microsoft                   | Dockerfile syntax, container management                     |
-| REST Client               | Huachao Mao                 | Test RESTful APIs directly from VS Code                     |
-| React Snippets            | Charalampos Karypidis       | Fast coding with React component templates                  |
-| Django                    | Baptiste Darthenay          | Django snippets and support                                 |
-| SQLTools                  | Matheus Teixeira            | Connect to PostgreSQL, MySQL, and other databases           |
-| GitHub Copilot            | GitHub                      | AI-powered code suggestions and completions                 |
-| Remote - SSH              | Microsoft                   | Edit and deploy code on remote servers via SSH              |
-| Dev Containers            | Microsoft                   | Containerized dev environments for consistent setup         |
->>>>>>> e469eb0cc26502ace145c065cae3bdb4aab25181
+Designed to support formal evaluation and reporting
+
+🔮 Planned Enhancements
+
+Contribution scheduling & enforcement
+
+Payout sequencing algorithms
+
+Fairness analysis comparison
+
+Admin analytics dashboard
+
+Rate-limiting & abuse prevention
+
+Deployment (Vercel + managed DB)
+
+👤 Author
+
+Bala Arun Pasala
+Master’s in Computer Science
+Aspiring Full-Stack & Security-Focused Software Engineer
