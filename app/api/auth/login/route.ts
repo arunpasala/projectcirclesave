@@ -1,36 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import pool from '../../../lib/db';
+import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import pool from "@/lib/db";
 
-export async function POST(request: NextRequest) {
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await request.json();
+    const { email, password } = await req.json();
 
     if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: "Email and password required" },
+        { status: 400 }
+      );
     }
 
-    const client = await pool.connect();
-    const result = await client.query('SELECT * FROM users WHERE email = $1', [email]);
-    client.release();
-
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    const JWT_SECRET = process.env.JWT_SECRET;
+    if (!JWT_SECRET) {
+      return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
     }
 
-    const user = result.rows[0];
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    const userRes = await pool.query(
+      `SELECT id, email, password_hash, is_verified FROM users WHERE email=$1`,
+      [email]
+    );
 
-    if (!isValidPassword) {
-      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    if (userRes.rowCount === 0) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1h' });
+    const user = userRes.rows[0];
 
-    return NextResponse.json({ message: 'Login successful', token });
-  } catch (error) {
-    console.error('Login error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    if (!user.is_verified) {
+      return NextResponse.json({ error: "Verify OTP first" }, { status: 403 });
+    }
+
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: "1h" });
+
+    return NextResponse.json({ token });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

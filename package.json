@@ -9,13 +9,17 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "react": "19.2.3",
-    "pg": "8.11.3",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2"
+    "dotenv": "^17.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "next": "^16.1.1",
+    "nodemailer": "^8.0.0",
+    "pg": "^8.18.0",
+    "react": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
