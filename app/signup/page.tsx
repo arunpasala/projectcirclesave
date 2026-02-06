@@ -56,7 +56,7 @@ export default function SignupPage() {
             </div>
             <span className="text-lg font-semibold">CircleSave</span>
           </div>
-          <div className="p-6 text-3xl font-bold text-red-600">TAILWIND TEST</div>
+        
 
           <h1 className="mt-8 text-5xl font-extrabold leading-tight tracking-tight">
             Build your circle. <span className="text-blue-600">Save together.</span>

@@ -1,13 +1,14 @@
 // lib/client-auth.ts
-export function getToken(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem("circlesave_token") || "";
-}
+export const TOKEN_KEY = "circlesave_token";
 
 export function setToken(token: string) {
-  localStorage.setItem("circlesave_token", token);
+  localStorage.setItem(TOKEN_KEY, token);
 }
 
-export function clearToken() {
-  localStorage.removeItem("circlesave_token");
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+export function logout() {
+  localStorage.removeItem(TOKEN_KEY);
 }

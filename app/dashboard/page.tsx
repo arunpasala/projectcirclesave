@@ -1,244 +1,314 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
-import { clearToken, getToken } from "@/lib/client-auth";
+import AppHeader from "@/app/components/AppHeader";
+import { getToken } from "@/lib/client-auth";
 
 type Circle = {
   id: number;
-  name: string;
-  contribution_amount: string; // coming from Postgres numeric -> string often
   owner_id: number;
+  name: string;
+  contribution_amount: string | number;
   created_at: string;
 };
 
+function money(v: any) {
+  const num = typeof v === "string" ? Number(v) : v;
+  if (Number.isNaN(num)) return v;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+}
+
 export default function DashboardPage() {
   const router = useRouter();
-
-  const [circles, setCircles] = useState<Circle[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Create circle form
-  const [newName, setNewName] = useState("");
-  const [newAmount, setNewAmount] = useState<string>("");
-
-  // Join circle form
-  const [joinId, setJoinId] = useState<string>("");
-
-  const [err, setErr] = useState<string>("");
-  const [ok, setOk] = useState<string>("");
-
   const token = useMemo(() => getToken(), []);
 
-  async function refresh() {
-    setErr("");
-    setOk("");
-    setLoading(true);
-    try {
-      // Expecting API to return something like: { circles: [...] } OR just [...]
-      const data = await api<any>("/api/circles/my");
+  const [loading, setLoading] = useState(true);
 
-      const list: Circle[] = Array.isArray(data) ? data : data.circles ?? [];
-      setCircles(list);
+  // lists
+  const [myCircles, setMyCircles] = useState<Circle[]>([]);
+  const [allCircles, setAllCircles] = useState<Circle[]>([]);
+
+  // create circle form
+  const [circleName, setCircleName] = useState("");
+  const [contributionAmount, setContributionAmount] = useState<number>(50);
+
+  // join form
+  const [joinCircleId, setJoinCircleId] = useState<number | "">("");
+
+  // errors / success
+  const [errMy, setErrMy] = useState("");
+  const [errAll, setErrAll] = useState("");
+  const [errCreate, setErrCreate] = useState("");
+  const [errJoin, setErrJoin] = useState("");
+
+  const [okCreate, setOkCreate] = useState("");
+  const [okJoin, setOkJoin] = useState("");
+
+  async function fetchMyCircles(jwt: string) {
+    setErrMy("");
+    try {
+      const res = await fetch("/api/circles/my", {
+        headers: { Authorization: `Bearer ${jwt}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to load your circles");
+      setMyCircles(data.circles || []);
     } catch (e: any) {
-      setErr(e?.message || "Failed to load circles.");
-    } finally {
-      setLoading(false);
+      setErrMy(e.message || "Server error");
+      setMyCircles([]);
+    }
+  }
+
+  async function fetchAllCircles(jwt: string) {
+    setErrAll("");
+    try {
+      const res = await fetch("/api/circles/all", {
+        headers: { Authorization: `Bearer ${jwt}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to load circles");
+      setAllCircles(data.circles || []);
+    } catch (e: any) {
+      setErrAll(e.message || "Server error");
+      setAllCircles([]);
     }
   }
 
   useEffect(() => {
     if (!token) {
-      router.replace("/login");
+      router.push("/login");
       return;
     }
-    refresh();
+
+    (async () => {
+      setLoading(true);
+      await Promise.all([fetchMyCircles(token), fetchAllCircles(token)]);
+      setLoading(false);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
-  async function onCreate(e: React.FormEvent) {
+  async function onCreateCircle(e: React.FormEvent) {
     e.preventDefault();
-    setErr("");
-    setOk("");
+    setErrCreate("");
+    setOkCreate("");
+    setOkJoin("");
+    setErrJoin("");
 
-    if (!newName.trim()) return setErr("Circle name is required.");
-    const amt = Number(newAmount);
-    if (!newAmount || Number.isNaN(amt) || amt <= 0) return setErr("Contribution amount must be a positive number.");
+    if (!circleName.trim()) {
+      setErrCreate("Please enter a circle name.");
+      return;
+    }
 
     try {
-      await api("/api/circles/create", {
+      const res = await fetch("/api/circles/create", {
         method: "POST",
-        body: JSON.stringify({ name: newName.trim(), contributionAmount: amt }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: circleName.trim(),
+          contributionAmount,
+        }),
       });
 
-      setOk("Circle created.");
-      setNewName("");
-      setNewAmount("");
-      await refresh();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Create circle failed");
+
+      setOkCreate(`Circle created: ${data.circle?.name || "Success"}`);
+      setCircleName("");
+      setContributionAmount(50);
+
+      await Promise.all([fetchMyCircles(token), fetchAllCircles(token)]);
     } catch (e: any) {
-      setErr(e?.message || "Create failed.");
+      setErrCreate(e.message || "Server error");
     }
   }
 
-  async function onJoin(e: React.FormEvent) {
+  async function onJoinCircle(e: React.FormEvent) {
     e.preventDefault();
-    setErr("");
-    setOk("");
+    setErrJoin("");
+    setOkJoin("");
+    setOkCreate("");
+    setErrCreate("");
 
-    const id = Number(joinId);
-    if (!joinId || Number.isNaN(id) || id <= 0) return setErr("Enter a valid Circle ID.");
+    if (!joinCircleId) {
+      setErrJoin("Please select a circle.");
+      return;
+    }
 
     try {
-      await api("/api/circles/join", {
+      const res = await fetch("/api/circles/join", {
         method: "POST",
-        body: JSON.stringify({ circleId: id }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ circleId: joinCircleId }),
       });
 
-      setOk("Joined circle.");
-      setJoinId("");
-      await refresh();
-    } catch (e: any) {
-      // common: 409 already member
-      setErr(e?.message || "Join failed.");
-    }
-  }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Join request failed");
 
-  function logout() {
-    clearToken();
-    router.replace("/login");
+      // Your API currently returns 409 if already requested/joined
+      // and success message otherwise.
+      setOkJoin(data?.message || "Join request sent.");
+
+      setJoinCircleId("");
+      await Promise.all([fetchMyCircles(token), fetchAllCircles(token)]);
+    } catch (e: any) {
+      setErrJoin(e.message || "Server error");
+    }
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Top bar */}
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-600 text-white font-bold">
-              C
-            </div>
-            <div>
-              <p className="text-sm font-semibold leading-tight">CircleSave</p>
-              <p className="text-xs text-slate-500 leading-tight">Dashboard</p>
-            </div>
-          </div>
+    <main className="min-h-screen bg-[#f0f2f5]">
+      <AppHeader />
 
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="hidden rounded-xl border bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 md:inline-flex"
-            >
-              Home
-            </Link>
-            <button
-              onClick={logout}
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Logout
-            </button>
-          </div>
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
+          <p className="mt-1 text-slate-600">
+            Create circles, request to join circles, and track your memberships.
+          </p>
         </div>
-      </header>
 
-      {/* Content */}
-      <section className="mx-auto max-w-6xl px-4 py-10">
-        <div className="grid gap-8 lg:grid-cols-[1fr_420px]">
-          {/* Left: My circles */}
-          <div>
-            <div className="flex items-end justify-between">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">My circles</h1>
-                <p className="mt-1 text-sm text-slate-600">
-                  View your circles, create a new one, or join by ID.
-                </p>
+        {/* 2-column layout */}
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* LEFT: My circles */}
+          <section className="lg:col-span-2">
+            <div className="rounded-2xl border bg-white shadow-sm">
+              <div className="border-b px-5 py-4">
+                <h2 className="text-lg font-semibold">My circles</h2>
+                <p className="text-sm text-slate-600">Circles you own or are a member of.</p>
               </div>
 
-              <button
-                onClick={refresh}
-                className="rounded-xl border bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
-              >
-                Refresh
-              </button>
-            </div>
+              <div className="p-5">
+                {loading ? (
+                  <div className="text-sm text-slate-600">Loading…</div>
+                ) : errMy ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {errMy}
+                  </div>
+                ) : myCircles.length === 0 ? (
+                  <div className="rounded-xl border bg-slate-50 px-4 py-6 text-sm text-slate-700">
+                    No circles yet.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {myCircles.map((c) => (
+                      <div key={c.id} className="rounded-2xl border bg-white p-4 hover:bg-slate-50">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{c.name}</p>
+                            <p className="mt-1 text-xs text-slate-600">
+                              Contribution: <span className="font-medium">{money(c.contribution_amount)}</span>
+                            </p>
+                          </div>
 
-            {(err || ok) && (
-              <div
-                className={[
-                  "mt-4 rounded-2xl border p-4 text-sm",
-                  err ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700",
-                ].join(" ")}
-              >
-                {err || ok}
-              </div>
-            )}
-
-            <div className="mt-6 rounded-3xl border bg-white p-5 shadow-sm">
-              {loading ? (
-                <p className="text-sm text-slate-600">Loading...</p>
-              ) : circles.length === 0 ? (
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-sm font-medium">No circles yet.</p>
-                  <p className="mt-1 text-sm text-slate-600">Create one on the right or join using a Circle ID.</p>
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {circles.map((c) => (
-                    <div key={c.id} className="rounded-2xl border bg-white p-4 hover:bg-slate-50">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold">{c.name}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Circle ID: <span className="font-medium text-slate-700">{c.id}</span>
-                          </p>
+                          <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
+                            #{c.id}
+                          </span>
                         </div>
-                        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                          ${c.contribution_amount}
-                        </span>
-                      </div>
-                      <p className="mt-3 text-xs text-slate-500">
-                        Created: {new Date(c.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
 
-          {/* Right: Forms */}
+                        <p className="mt-3 text-xs text-slate-500">
+                          Created: {new Date(c.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ALL circles list */}
+            <div className="mt-6 rounded-2xl border bg-white shadow-sm">
+              <div className="border-b px-5 py-4">
+                <h2 className="text-lg font-semibold">All circles</h2>
+                <p className="text-sm text-slate-600">Browse circles (members hidden). Request to join.</p>
+              </div>
+
+              <div className="p-5">
+                {loading ? (
+                  <div className="text-sm text-slate-600">Loading…</div>
+                ) : errAll ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {errAll}
+                  </div>
+                ) : allCircles.length === 0 ? (
+                  <div className="rounded-xl border bg-slate-50 px-4 py-6 text-sm text-slate-700">
+                    No circles found.
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border">
+                    <div className="grid grid-cols-12 bg-slate-50 px-4 py-2 text-xs font-medium text-slate-600">
+                      <div className="col-span-6">Name</div>
+                      <div className="col-span-3">Contribution</div>
+                      <div className="col-span-3 text-right">ID</div>
+                    </div>
+                    {allCircles.map((c) => (
+                      <div
+                        key={c.id}
+                        className="grid grid-cols-12 px-4 py-3 text-sm hover:bg-slate-50"
+                      >
+                        <div className="col-span-6 font-medium text-slate-900">{c.name}</div>
+                        <div className="col-span-3 text-slate-700">{money(c.contribution_amount)}</div>
+                        <div className="col-span-3 text-right text-slate-600">#{c.id}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* RIGHT: Actions */}
           <aside className="space-y-6">
             {/* Create circle */}
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold">Create a circle</h2>
-              <p className="mt-1 text-sm text-slate-600">Start a new savings circle.</p>
+            <div className="rounded-2xl border bg-white shadow-sm">
+              <div className="border-b px-5 py-4">
+                <h3 className="text-base font-semibold">Create a circle</h3>
+                <p className="text-sm text-slate-600">You become the circle head (owner).</p>
+              </div>
 
-              <form onSubmit={onCreate} className="mt-5 space-y-3">
+              <form onSubmit={onCreateCircle} className="p-5 space-y-3">
                 <div>
-                  <label className="text-sm font-medium">Circle name</label>
+                  <label className="text-sm font-medium text-slate-700">Circle name</label>
                   <input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g., Feb Savings Group"
-                    className="mt-2 w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+                    value={circleName}
+                    onChange={(e) => setCircleName(e.target.value)}
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/20"
+                    placeholder="Feb Saving Group"
                   />
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium">Contribution amount</label>
+                  <label className="text-sm font-medium text-slate-700">Contribution amount</label>
                   <input
-                    value={newAmount}
-                    onChange={(e) => setNewAmount(e.target.value)}
-                    placeholder="e.g., 50"
-                    inputMode="decimal"
-                    className="mt-2 w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+                    type="number"
+                    value={contributionAmount}
+                    onChange={(e) => setContributionAmount(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/20"
+                    min={1}
                   />
                 </div>
+
+                {errCreate && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {errCreate}
+                  </div>
+                )}
+                {okCreate && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {okCreate}
+                  </div>
+                )}
 
                 <button
                   type="submit"
-                  className="mt-2 w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+                  className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   Create circle
                 </button>
@@ -246,37 +316,57 @@ export default function DashboardPage() {
             </div>
 
             {/* Join circle */}
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold">Join a circle</h2>
-              <p className="mt-1 text-sm text-slate-600">Enter an existing Circle ID.</p>
+            <div className="rounded-2xl border bg-white shadow-sm">
+              <div className="border-b px-5 py-4">
+                <h3 className="text-base font-semibold">Request to join</h3>
+                <p className="text-sm text-slate-600">Admin approval required (status: PENDING).</p>
+              </div>
 
-              <form onSubmit={onJoin} className="mt-5 space-y-3">
+              <form onSubmit={onJoinCircle} className="p-5 space-y-3">
                 <div>
-                  <label className="text-sm font-medium">Circle ID</label>
-                  <input
-                    value={joinId}
-                    onChange={(e) => setJoinId(e.target.value)}
-                    placeholder="e.g., 1"
-                    inputMode="numeric"
-                    className="mt-2 w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200"
-                  />
+                  <label className="text-sm font-medium text-slate-700">Select a circle</label>
+                  <select
+                    value={joinCircleId}
+                    onChange={(e) => setJoinCircleId(e.target.value ? Number(e.target.value) : "")}
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/20"
+                  >
+                    <option value="">Choose…</option>
+                    {allCircles.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        #{c.id} — {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+
+                {errJoin && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {errJoin}
+                  </div>
+                )}
+                {okJoin && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {okJoin}
+                  </div>
+                )}
 
                 <button
                   type="submit"
-                  className="mt-2 w-full rounded-2xl border bg-white px-4 py-3 text-sm font-semibold hover:bg-slate-50"
+                  className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
                 >
-                  Join circle
+                  Send join request
                 </button>
-              </form>
 
-              <p className="mt-3 text-xs text-slate-500">
-                Tip: If you’re already a member you may see a conflict error (409).
-              </p>
+                <p className="text-xs text-slate-500">
+                  If you see “Conflict (409)”, you already requested or you’re already a member.
+                </p>
+              </form>
             </div>
           </aside>
         </div>
-      </section>
+
+        <p className="mt-8 text-center text-xs text-slate-500">© {new Date().getFullYear()} CircleSave</p>
+      </div>
     </main>
   );
 }
