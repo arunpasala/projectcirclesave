@@ -1,391 +1,395 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { getToken } from "@/lib/client-auth";
+import { useParams } from "next/navigation";
+import { getToken, logout } from "@/lib/client-auth";
+
+type Circle = {
+  id: number;
+  owner_id: number;
+  name: string;
+  contribution_amount: string;
+  created_at: string;
+  isOwner: boolean;
+};
 
 type Member = {
-  id: number;
   user_id: number;
-  full_name?: string | null;
-  email?: string;
+  full_name: string;
+  email: string;
   role: string;
   status: string;
+  joined_at: string;
 };
 
-type PollResult = {
-  nominee_user_id: number;
-  full_name: string | null;
-  email: string;
-  votes: number;
-};
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 
-export default function CirclePage() {
-  const params = useParams();
-  const router = useRouter();
+export default function CircleDetailsPage() {
+  const params = useParams(); // ✅ fix for Next 15/16 params Promise behavior
+  const circleId = Number(params?.id);
+
   const token = useMemo(() => getToken(), []);
-  const circleId = Number(params.id);
 
+  const [circle, setCircle] = useState<Circle | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
-
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
-  // payout / wheel
-  const [monthKey, setMonthKey] = useState("");
-  const [payout, setPayout] = useState<any>(null);
+  // Poll (frontend-only)
+  const pollOptions = ["Rotation", "Random", "Wheel"];
+  const [votes, setVotes] = useState<Record<string, number>>({
+    Rotation: 0,
+    Random: 0,
+    Wheel: 0,
+  });
+  const [voted, setVoted] = useState(false);
+
+  // Wheel (frontend-only)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [spinResult, setSpinResult] = useState<string>("");
   const [spinning, setSpinning] = useState(false);
-  const [spinWinner, setSpinWinner] = useState<any>(null);
 
-  // poll
-  const [poll, setPoll] = useState<any>(null);
-  const [pollResults, setPollResults] = useState<PollResult[]>([]);
-  const [voteNomineeId, setVoteNomineeId] = useState<number | "">("");
-
-  function toast(ok?: string, err?: string) {
-    setSuccess(ok || "");
-    setError(err || "");
-    if (ok || err) setTimeout(() => (setSuccess(""), setError("")), 3500);
-  }
-
-  async function authedFetch(path: string, init?: RequestInit) {
-    const res = await fetch(path, {
-      ...init,
-      headers: {
-        ...(init?.headers || {}),
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.message || "Server error");
-    return data;
-  }
-
-  async function loadAll() {
-    try {
-      const m = await authedFetch(`/api/circles/${circleId}/members`);
-      setMembers(m.members || []);
-      setIsAdmin(!!m.isAdmin);
-
-      const p = await authedFetch(`/api/circles/${circleId}/payout`);
-      setMonthKey(p.monthKey);
-      setPayout(p.payout);
-
-      const pollData = await authedFetch(`/api/circles/${circleId}/poll`);
-      setMonthKey(pollData.monthKey);
-      setPoll(pollData.poll);
-      setPollResults(pollData.results || []);
-    } catch (e: any) {
-      toast("", e.message || "Failed");
+  useEffect(() => {
+    if (!token) {
+      window.location.href = "/login";
+      return;
     }
-  }
+  }, [token]);
 
   useEffect(() => {
-    if (!token) router.push("/login");
-  }, [router, token]);
+    if (!token) return;
+    if (!Number.isFinite(circleId)) return;
 
-  useEffect(() => {
-    if (token && circleId) loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const load = async () => {
+      setError("");
+      try {
+        const cRes = await fetch(`/api/circles/${circleId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!cRes.ok) {
+          const data = await cRes.json().catch(() => ({}));
+          throw new Error(data?.error || `Failed to load circle (${cRes.status})`);
+        }
+        const cData = await cRes.json();
+        setCircle(cData.circle);
+
+        const mRes = await fetch(`/api/circles/${circleId}/members`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!mRes.ok) {
+          const data = await mRes.json().catch(() => ({}));
+          throw new Error(data?.error || `Failed to load members (${mRes.status})`);
+        }
+        const mData = await mRes.json();
+        setMembers(mData.members || []);
+      } catch (e: any) {
+        setError(e?.message || "Something went wrong");
+      }
+    };
+
+    load();
   }, [token, circleId]);
 
-  async function removeMember(userId: number) {
-    try {
-      await authedFetch(`/api/circles/${circleId}/members/remove`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      toast("Member removed ✅");
-      await loadAll();
-    } catch (e: any) {
-      toast("", e.message || "Remove failed");
+  // Draw simple wheel from APPROVED members
+  useEffect(() => {
+    const approved = members.filter((m) => m.status === "APPROVED");
+    const names = approved.map((m) => m.full_name);
+    drawWheel(names);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members]);
+
+  const drawWheel = (names: string[]) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const size = canvas.width;
+    const center = size / 2;
+    const radius = center - 8;
+
+    ctx.clearRect(0, 0, size, size);
+
+    // background
+    ctx.beginPath();
+    ctx.arc(center, center, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#0b1220";
+    ctx.fill();
+
+    if (names.length === 0) {
+      ctx.fillStyle = "#cbd5e1";
+      ctx.font = "16px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("No approved members", center, center);
+      return;
     }
-  }
 
-  async function spinWheel() {
-    try {
-      setSpinning(true);
-      setSpinWinner(null);
-      toast("", "");
+    const slice = (Math.PI * 2) / names.length;
 
-      // Fake animation delay + server winner
-      const data = await authedFetch(`/api/circles/${circleId}/payout/spin`, {
-        method: "POST",
-      });
+    for (let i = 0; i < names.length; i++) {
+      const start = i * slice;
+      const end = start + slice;
 
-      // show animation for ~2.5s
-      const winner = data.winner;
-      setTimeout(() => {
-        setSpinWinner(winner);
-        setPayout({ full_name: winner.full_name, email: winner.email, created_at: new Date().toISOString() });
-        toast(`Winner selected ✅ ${winner.full_name || winner.email}`);
-        setSpinning(false);
-      }, 2500);
-    } catch (e: any) {
-      setSpinning(false);
-      toast("", e.message || "Spin failed");
+      // alternating slices
+      ctx.beginPath();
+      ctx.moveTo(center, center);
+      ctx.arc(center, center, radius, start, end);
+      ctx.closePath();
+      ctx.fillStyle = i % 2 === 0 ? "#111827" : "#0f172a";
+      ctx.fill();
+
+      // text
+      ctx.save();
+      ctx.translate(center, center);
+      ctx.rotate(start + slice / 2);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "12px ui-sans-serif, system-ui";
+      ctx.textAlign = "right";
+      ctx.fillText(names[i].slice(0, 16), radius - 14, 4);
+      ctx.restore();
     }
-  }
 
-  async function pollCreate() {
-    try {
-      await authedFetch(`/api/circles/${circleId}/poll`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create" }),
-      });
-      toast("Poll created ✅");
-      await loadAll();
-    } catch (e: any) {
-      toast("", e.message || "Poll create failed");
-    }
-  }
+    // pointer
+    ctx.beginPath();
+    ctx.moveTo(center, 6);
+    ctx.lineTo(center - 10, 26);
+    ctx.lineTo(center + 10, 26);
+    ctx.closePath();
+    ctx.fillStyle = "#f8fafc";
+    ctx.fill();
+  };
 
-  async function pollClose() {
-    try {
-      await authedFetch(`/api/circles/${circleId}/poll`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "close" }),
-      });
-      toast("Poll closed ✅");
-      await loadAll();
-    } catch (e: any) {
-      toast("", e.message || "Poll close failed");
-    }
-  }
+  const handleVote = (opt: string) => {
+    if (voted) return;
+    setVotes((v) => ({ ...v, [opt]: (v[opt] || 0) + 1 }));
+    setVoted(true);
+  };
 
-  async function vote() {
-    try {
-      if (!voteNomineeId) return toast("", "Pick a nominee");
-      await authedFetch(`/api/circles/${circleId}/poll`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "vote", nomineeUserId: voteNomineeId }),
-      });
-      toast("Vote saved ✅");
-      await loadAll();
-    } catch (e: any) {
-      toast("", e.message || "Vote failed");
-    }
-  }
+  const spin = async () => {
+    const approved = members.filter((m) => m.status === "APPROVED");
+    if (approved.length === 0) return;
 
-  const approvedMembers = members.filter((m) => m.status === "APPROVED");
+    setSpinning(true);
+    setSpinResult("");
+
+    await new Promise((r) => setTimeout(r, 900));
+
+    const winner = approved[Math.floor(Math.random() * approved.length)];
+    setSpinResult(`${winner.full_name} 🎉`);
+    setSpinning(false);
+  };
+
+  const approvedCount = members.filter((m) => m.status === "APPROVED").length;
+  const pendingCount = members.filter((m) => m.status === "PENDING").length;
 
   return (
-    <main className="min-h-screen bg-[#f0f2f5]">
-      <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
+    <main className="min-h-screen bg-[#0b1220] text-slate-100">
+      {/* Top bar */}
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0b1220]/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-blue-600" />
-            <span className="text-lg font-semibold tracking-tight">CircleSave</span>
+          <Link href="/dashboard" className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-white/10 ring-1 ring-white/10" />
+            <div className="leading-tight">
+              <div className="text-sm font-semibold">CircleSave</div>
+              <div className="text-[11px] text-slate-300">Circle details</div>
+            </div>
           </Link>
-          <Link className="text-sm text-blue-700 hover:underline" href="/dashboard">
-            Back to dashboard
-          </Link>
+
+          <button
+            onClick={() => {
+              logout();
+              window.location.href = "/login";
+            }}
+            className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium ring-1 ring-white/10 hover:bg-white/15"
+          >
+            Logout
+          </button>
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <h1 className="text-3xl font-bold text-slate-900">Circle #{circleId}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Members • Poll • Wheel payout ({monthKey || "this month"})
-        </p>
+      <div className="mx-auto grid max-w-6xl gap-4 px-4 py-6 md:grid-cols-[1.25fr_.75fr]">
+        {/* Left */}
+        <section className="space-y-4">
+          {/* Circle “profile card” */}
+          <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="h-14 w-14 rounded-2xl bg-white/10 ring-1 ring-white/10" />
+                <div>
+                  <div className="text-lg font-semibold">
+                    {circle?.name || "Loading..."}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-300">
+                    Contribution:{" "}
+                    <span className="font-medium text-slate-100">
+                      ${circle?.contribution_amount ?? "—"}
+                    </span>
+                    <span className="mx-2 text-slate-500">•</span>
+                    Members:{" "}
+                    <span className="font-medium text-slate-100">
+                      {approvedCount}
+                    </span>
+                    {pendingCount > 0 ? (
+                      <>
+                        <span className="mx-2 text-slate-500">•</span>
+                        Pending:{" "}
+                        <span className="font-medium text-amber-200">
+                          {pendingCount}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
 
-        {(error || success) && (
-          <div
-            className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
-              error
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700"
-            }`}
-          >
-            {error || success}
+              <div className="flex flex-wrap gap-2">
+                <span
+                  className={classNames(
+                    "rounded-full px-3 py-1 text-xs font-semibold ring-1",
+                    circle?.isOwner
+                      ? "bg-emerald-500/15 text-emerald-200 ring-emerald-400/20"
+                      : "bg-white/10 text-slate-200 ring-white/10"
+                  )}
+                >
+                  {circle?.isOwner ? "Owner" : "Member"}
+                </span>
+
+                <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/10">
+                  Circle #{Number.isFinite(circleId) ? circleId : "—"}
+                </span>
+              </div>
+            </div>
+
+            {error ? (
+              <div className="mt-4 rounded-2xl bg-rose-500/10 p-3 text-sm text-rose-200 ring-1 ring-rose-400/20">
+                {error}
+              </div>
+            ) : null}
           </div>
-        )}
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-3">
-          {/* Members */}
-          <section className="rounded-3xl border bg-white p-6 shadow-sm lg:col-span-2">
+          {/* Members list */}
+          <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Members ({approvedMembers.length})
-              </h2>
-              <span className="text-xs text-slate-500">
-                {isAdmin ? "Admin view" : "Member view"}
+              <h2 className="text-sm font-semibold">Members</h2>
+              <span className="text-xs text-slate-300">
+                Approved: {approvedCount}
               </span>
             </div>
 
-            <div className="mt-4 space-y-3">
-              {approvedMembers.length === 0 ? (
-                <div className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-600">
-                  No approved members yet.
-                </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {members.length === 0 ? (
+                <div className="text-sm text-slate-300">No members found.</div>
               ) : (
-                approvedMembers.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between rounded-2xl border p-4">
-                    <div>
-                      <p className="font-medium text-slate-900">
-                        {m.full_name || "Unnamed"}{" "}
-                        <span className="text-xs text-slate-500">({m.role})</span>
-                      </p>
-                      {isAdmin && m.email && <p className="text-xs text-slate-500">{m.email}</p>}
-                    </div>
+                members.map((m) => (
+                  <div
+                    key={m.user_id}
+                    className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">{m.full_name}</div>
+                        <div className="text-xs text-slate-400">{m.email}</div>
+                      </div>
 
-                    {isAdmin && m.role !== "ADMIN" && (
-                      <button
-                        onClick={() => removeMember(m.user_id)}
-                        className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                      >
-                        Remove
-                      </button>
-                    )}
+                      <div className="flex flex-col items-end gap-2">
+                        <span
+                          className={classNames(
+                            "rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1",
+                            m.status === "APPROVED"
+                              ? "bg-emerald-500/15 text-emerald-200 ring-emerald-400/20"
+                              : "bg-amber-500/15 text-amber-200 ring-amber-400/20"
+                          )}
+                        >
+                          {m.status}
+                        </span>
+                        <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold ring-1 ring-white/10">
+                          {m.role}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 ))
               )}
             </div>
-          </section>
+          </div>
+        </section>
 
-          {/* Payout / Wheel */}
-          <section className="rounded-3xl border bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">Wheel payout</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Admin spins once per month. Result stored in DB.
+        {/* Right */}
+        <aside className="space-y-4">
+          {/* Poll card */}
+          <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
+            <h2 className="text-sm font-semibold">Monthly payout method poll</h2>
+            <p className="mt-1 text-xs text-slate-300">
+              (MVP) This is frontend-only right now. Next we’ll store votes in DB.
             </p>
 
-            <div className="mt-4 rounded-3xl border bg-slate-50 p-5">
-              <div
-                className={`mx-auto flex h-44 w-44 items-center justify-center rounded-full border bg-white text-center text-sm font-semibold ${
-                  spinning ? "animate-spin" : ""
-                }`}
-                title="Wheel (MVP visual)"
-              >
-                {spinning ? "Spinning..." : "Wheel"}
-              </div>
-
-              <div className="mt-4 rounded-2xl border bg-white p-4">
-                <p className="text-xs text-slate-500">This month winner</p>
-                {payout ? (
-                  <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {payout.full_name || payout.email}
-                  </p>
-                ) : (
-                  <p className="mt-1 text-sm text-slate-600">Not selected yet.</p>
-                )}
-              </div>
-
-              {spinWinner && (
-                <div className="mt-3 rounded-2xl border bg-emerald-50 p-3 text-sm text-emerald-700">
-                  Winner: <b>{spinWinner.full_name || spinWinner.email}</b>
-                </div>
-              )}
-
-              <button
-                onClick={spinWheel}
-                disabled={!isAdmin || spinning || !!payout}
-                className="mt-4 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
-              >
-                {payout ? "Already selected" : !isAdmin ? "Admin only" : spinning ? "Spinning..." : "Spin wheel"}
-              </button>
-            </div>
-          </section>
-
-          {/* Poll */}
-          <section className="rounded-3xl border bg-white p-6 shadow-sm lg:col-span-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Monthly poll</h2>
-                <p className="text-xs text-slate-500">
-                  Members vote who should receive payout. Admin can close poll.
-                </p>
-              </div>
-
-              {isAdmin && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={pollCreate}
-                    className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                  >
-                    Create poll
-                  </button>
-                  <button
-                    onClick={pollClose}
-                    className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                  >
-                    Close poll
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              {/* Vote */}
-              <div className="rounded-3xl border bg-slate-50 p-5">
-                <h3 className="text-sm font-semibold text-slate-900">Vote</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  {poll ? `Status: ${poll.status}` : "Poll not created yet"}
-                </p>
-
-                <select
-                  value={voteNomineeId}
-                  onChange={(e) => setVoteNomineeId(e.target.value ? Number(e.target.value) : "")}
-                  className="mt-3 h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-200"
-                  disabled={!poll || poll.status !== "OPEN"}
-                >
-                  <option value="">Select member</option>
-                  {approvedMembers.map((m) => (
-                    <option key={m.user_id} value={m.user_id}>
-                      {m.full_name || `User ${m.user_id}`}
-                    </option>
-                  ))}
-                </select>
-
+            <div className="mt-4 space-y-2">
+              {pollOptions.map((opt) => (
                 <button
-                  onClick={vote}
-                  disabled={!poll || poll.status !== "OPEN"}
-                  className="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
-                >
-                  Submit vote
-                </button>
-              </div>
-
-              {/* Results */}
-              <div className="rounded-3xl border bg-slate-50 p-5">
-                <h3 className="text-sm font-semibold text-slate-900">Results</h3>
-                <p className="mt-1 text-xs text-slate-500">Live counts</p>
-
-                <div className="mt-3 space-y-3">
-                  {pollResults.length === 0 ? (
-                    <div className="rounded-2xl border bg-white p-4 text-sm text-slate-600">
-                      No votes yet.
-                    </div>
-                  ) : (
-                    pollResults.map((r) => (
-                      <div key={r.nominee_user_id} className="rounded-2xl border bg-white p-4">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-slate-900">
-                            {r.full_name || r.email}
-                          </p>
-                          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                            {r.votes} votes
-                          </span>
-                        </div>
-                      </div>
-                    ))
+                  key={opt}
+                  disabled={voted}
+                  onClick={() => handleVote(opt)}
+                  className={classNames(
+                    "w-full rounded-2xl p-3 text-left text-sm ring-1 transition",
+                    voted
+                      ? "cursor-not-allowed bg-white/5 text-slate-400 ring-white/10"
+                      : "bg-[#0f172a] hover:bg-white/10 ring-white/10"
                   )}
-                </div>
-              </div>
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">{opt}</span>
+                    <span className="text-xs text-slate-300">{votes[opt] || 0}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Wheel card */}
+          <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
+            <h2 className="text-sm font-semibold">Wheel pick (demo)</h2>
+            <p className="mt-1 text-xs text-slate-300">
+              Spins from <b>APPROVED</b> members only.
+            </p>
+
+            <div className="mt-4 flex items-center justify-center">
+              <canvas
+                ref={canvasRef}
+                width={260}
+                height={260}
+                className="rounded-3xl bg-[#0f172a] ring-1 ring-white/10"
+              />
             </div>
 
-            <p className="mt-5 text-xs text-slate-500">
-              Note: In MVP, poll and wheel are separate. Later we can let admin select winner from poll top votes.
-            </p>
-          </section>
-        </div>
+            <button
+              onClick={spin}
+              disabled={spinning || approvedCount === 0}
+              className={classNames(
+                "mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
+                spinning || approvedCount === 0
+                  ? "cursor-not-allowed bg-white/5 text-slate-400 ring-white/10"
+                  : "bg-white text-[#0b1220] hover:bg-white/90 ring-white/20"
+              )}
+            >
+              {spinning ? "Spinning..." : "Spin now"}
+            </button>
+
+            {spinResult ? (
+              <div className="mt-3 rounded-2xl bg-emerald-500/10 p-3 text-sm text-emerald-200 ring-1 ring-emerald-400/20">
+                Winner: <span className="font-semibold">{spinResult}</span>
+              </div>
+            ) : null}
+          </div>
+        </aside>
       </div>
+
+      <footer className="mx-auto max-w-6xl px-4 pb-8 text-xs text-slate-400">
+        CircleSave • MVP circle details page
+      </footer>
     </main>
   );
 }
