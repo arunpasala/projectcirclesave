@@ -18,8 +18,8 @@ type Member = {
   user_id: number;
   full_name: string;
   email: string;
-  role: string;
-  status: string;
+  role: string; // OWNER | MEMBER
+  status: string; // PENDING | APPROVED | REJECTED
   joined_at: string;
 };
 
@@ -28,7 +28,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 }
 
 export default function CircleDetailsPage() {
-  const params = useParams(); // ✅ fix for Next 15/16 params Promise behavior
+  const params = useParams<{ id: string }>();
   const circleId = Number(params?.id);
 
   const token = useMemo(() => getToken(), []);
@@ -37,7 +37,10 @@ export default function CircleDetailsPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
 
-  // Poll (frontend-only)
+  // action loading states for approve/reject/remove
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+
+  // Poll demo
   const pollOptions = ["Rotation", "Random", "Wheel"];
   const [votes, setVotes] = useState<Record<string, number>>({
     Rotation: 0,
@@ -46,7 +49,7 @@ export default function CircleDetailsPage() {
   });
   const [voted, setVoted] = useState(false);
 
-  // Wheel (frontend-only)
+  // Wheel demo
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [spinResult, setSpinResult] = useState<string>("");
   const [spinning, setSpinning] = useState(false);
@@ -58,45 +61,37 @@ export default function CircleDetailsPage() {
     }
   }, [token]);
 
+  const load = async () => {
+    if (!token || !Number.isFinite(circleId)) return;
+
+    setError("");
+    try {
+      const cRes = await fetch(`/api/circles/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const cData = await cRes.json().catch(() => ({}));
+      if (!cRes.ok) throw new Error(cData?.error || `Failed to load circle (${cRes.status})`);
+      setCircle(cData.circle);
+
+      const mRes = await fetch(`/api/circles/${circleId}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const mData = await mRes.json().catch(() => ({}));
+      if (!mRes.ok) throw new Error(mData?.error || `Failed to load members (${mRes.status})`);
+      setMembers(mData.members || []);
+    } catch (e: any) {
+      setError(e?.message || "Something went wrong");
+    }
+  };
+
   useEffect(() => {
-    if (!token) return;
-    if (!Number.isFinite(circleId)) return;
-
-    const load = async () => {
-      setError("");
-      try {
-        const cRes = await fetch(`/api/circles/${circleId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!cRes.ok) {
-          const data = await cRes.json().catch(() => ({}));
-          throw new Error(data?.error || `Failed to load circle (${cRes.status})`);
-        }
-        const cData = await cRes.json();
-        setCircle(cData.circle);
-
-        const mRes = await fetch(`/api/circles/${circleId}/members`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!mRes.ok) {
-          const data = await mRes.json().catch(() => ({}));
-          throw new Error(data?.error || `Failed to load members (${mRes.status})`);
-        }
-        const mData = await mRes.json();
-        setMembers(mData.members || []);
-      } catch (e: any) {
-        setError(e?.message || "Something went wrong");
-      }
-    };
-
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, circleId]);
 
-  // Draw simple wheel from APPROVED members
+  // draw wheel from approved members
   useEffect(() => {
-    const approved = members.filter((m) => m.status === "APPROVED");
-    const names = approved.map((m) => m.full_name);
+    const names = members.filter((m) => m.status === "APPROVED").map((m) => m.full_name);
     drawWheel(names);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members]);
@@ -104,7 +99,6 @@ export default function CircleDetailsPage() {
   const drawWheel = (names: string[]) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -134,7 +128,6 @@ export default function CircleDetailsPage() {
       const start = i * slice;
       const end = start + slice;
 
-      // alternating slices
       ctx.beginPath();
       ctx.moveTo(center, center);
       ctx.arc(center, center, radius, start, end);
@@ -142,7 +135,6 @@ export default function CircleDetailsPage() {
       ctx.fillStyle = i % 2 === 0 ? "#111827" : "#0f172a";
       ctx.fill();
 
-      // text
       ctx.save();
       ctx.translate(center, center);
       ctx.rotate(start + slice / 2);
@@ -175,7 +167,6 @@ export default function CircleDetailsPage() {
 
     setSpinning(true);
     setSpinResult("");
-
     await new Promise((r) => setTimeout(r, 900));
 
     const winner = approved[Math.floor(Math.random() * approved.length)];
@@ -183,8 +174,38 @@ export default function CircleDetailsPage() {
     setSpinning(false);
   };
 
-  const approvedCount = members.filter((m) => m.status === "APPROVED").length;
-  const pendingCount = members.filter((m) => m.status === "PENDING").length;
+  const decide = async (userId: number, decision: "APPROVE" | "REJECT" | "REMOVE") => {
+    if (!token) return;
+
+    const key = `${decision}:${userId}`;
+    setActionLoading((s) => ({ ...s, [key]: true }));
+    setError("");
+
+    try {
+      const res = await fetch(`/api/circles/${circleId}/members/decision`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId, decision }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Action failed (${res.status})`);
+
+      await load(); // refresh list after action
+    } catch (e: any) {
+      setError(e?.message || "Action failed");
+    } finally {
+      setActionLoading((s) => ({ ...s, [key]: false }));
+    }
+  };
+
+  const approved = members.filter((m) => m.status === "APPROVED");
+  const pending = members.filter((m) => m.status === "PENDING");
+  const approvedCount = approved.length;
+  const pendingCount = pending.length;
 
   return (
     <main className="min-h-screen bg-[#0b1220] text-slate-100">
@@ -214,32 +235,24 @@ export default function CircleDetailsPage() {
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-6 md:grid-cols-[1.25fr_.75fr]">
         {/* Left */}
         <section className="space-y-4">
-          {/* Circle “profile card” */}
+          {/* Circle card */}
           <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-4">
                 <div className="h-14 w-14 rounded-2xl bg-white/10 ring-1 ring-white/10" />
                 <div>
-                  <div className="text-lg font-semibold">
-                    {circle?.name || "Loading..."}
-                  </div>
+                  <div className="text-lg font-semibold">{circle?.name || "Loading..."}</div>
                   <div className="mt-1 text-sm text-slate-300">
                     Contribution:{" "}
                     <span className="font-medium text-slate-100">
                       ${circle?.contribution_amount ?? "—"}
                     </span>
                     <span className="mx-2 text-slate-500">•</span>
-                    Members:{" "}
-                    <span className="font-medium text-slate-100">
-                      {approvedCount}
-                    </span>
+                    Approved: <span className="font-medium text-slate-100">{approvedCount}</span>
                     {pendingCount > 0 ? (
                       <>
                         <span className="mx-2 text-slate-500">•</span>
-                        Pending:{" "}
-                        <span className="font-medium text-amber-200">
-                          {pendingCount}
-                        </span>
+                        Pending: <span className="font-medium text-amber-200">{pendingCount}</span>
                       </>
                     ) : null}
                   </div>
@@ -259,8 +272,15 @@ export default function CircleDetailsPage() {
                 </span>
 
                 <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/10">
-                  Circle #{Number.isFinite(circleId) ? circleId : "—"}
+                  Circle #{circleId}
                 </span>
+
+                <button
+                  onClick={load}
+                  className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/10 hover:bg-white/15"
+                >
+                  Refresh
+                </button>
               </div>
             </div>
 
@@ -271,48 +291,115 @@ export default function CircleDetailsPage() {
             ) : null}
           </div>
 
+          {/* ✅ Admin Approval UI (Owner only) */}
+          {circle?.isOwner ? (
+            <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold">Join requests</h2>
+                <span className="text-xs text-slate-300">Pending: {pendingCount}</span>
+              </div>
+
+              {pendingCount === 0 ? (
+                <div className="mt-4 text-sm text-slate-300">No pending requests.</div>
+              ) : (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {pending.map((m) => {
+                    const approveKey = `APPROVE:${m.user_id}`;
+                    const rejectKey = `REJECT:${m.user_id}`;
+                    return (
+                      <div key={m.user_id} className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold">{m.full_name}</div>
+                            <div className="text-xs text-slate-400">{m.email}</div>
+                            <div className="mt-2 inline-flex rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-400/20">
+                              PENDING
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2">
+                            <button
+                              onClick={() => decide(m.user_id, "APPROVE")}
+                              disabled={!!actionLoading[approveKey]}
+                              className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-400/20 hover:bg-emerald-500/20 disabled:opacity-60"
+                            >
+                              {actionLoading[approveKey] ? "Approving..." : "Approve"}
+                            </button>
+
+                            <button
+                              onClick={() => decide(m.user_id, "REJECT")}
+                              disabled={!!actionLoading[rejectKey]}
+                              className="rounded-xl bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-200 ring-1 ring-rose-400/20 hover:bg-rose-500/20 disabled:opacity-60"
+                            >
+                              {actionLoading[rejectKey] ? "Rejecting..." : "Reject"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {/* Members list */}
           <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Members</h2>
-              <span className="text-xs text-slate-300">
-                Approved: {approvedCount}
-              </span>
+              <span className="text-xs text-slate-300">Approved: {approvedCount}</span>
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {members.length === 0 ? (
                 <div className="text-sm text-slate-300">No members found.</div>
               ) : (
-                members.map((m) => (
-                  <div
-                    key={m.user_id}
-                    className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold">{m.full_name}</div>
-                        <div className="text-xs text-slate-400">{m.email}</div>
-                      </div>
+                members.map((m) => {
+                  const removeKey = `REMOVE:${m.user_id}`;
+                  const canRemove =
+                    circle?.isOwner &&
+                    m.role !== "OWNER"; // don’t remove owner from UI
 
-                      <div className="flex flex-col items-end gap-2">
-                        <span
-                          className={classNames(
-                            "rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1",
-                            m.status === "APPROVED"
-                              ? "bg-emerald-500/15 text-emerald-200 ring-emerald-400/20"
-                              : "bg-amber-500/15 text-amber-200 ring-amber-400/20"
-                          )}
-                        >
-                          {m.status}
-                        </span>
-                        <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold ring-1 ring-white/10">
-                          {m.role}
-                        </span>
+                  return (
+                    <div key={m.user_id} className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">{m.full_name}</div>
+                          <div className="text-xs text-slate-400">{m.email}</div>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-2">
+                          <span
+                            className={classNames(
+                              "rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1",
+                              m.status === "APPROVED"
+                                ? "bg-emerald-500/15 text-emerald-200 ring-emerald-400/20"
+                                : m.status === "PENDING"
+                                ? "bg-amber-500/15 text-amber-200 ring-amber-400/20"
+                                : "bg-rose-500/15 text-rose-200 ring-rose-400/20"
+                            )}
+                          >
+                            {m.status}
+                          </span>
+
+                          <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold ring-1 ring-white/10">
+                            {m.role}
+                          </span>
+
+                          {canRemove ? (
+                            <button
+                              onClick={() => decide(m.user_id, "REMOVE")}
+                              disabled={!!actionLoading[removeKey]}
+                              className="rounded-xl bg-white/10 px-3 py-2 text-[11px] font-semibold ring-1 ring-white/10 hover:bg-white/15 disabled:opacity-60"
+                            >
+                              {actionLoading[removeKey] ? "Removing..." : "Remove"}
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -320,12 +407,10 @@ export default function CircleDetailsPage() {
 
         {/* Right */}
         <aside className="space-y-4">
-          {/* Poll card */}
+          {/* Poll demo */}
           <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
             <h2 className="text-sm font-semibold">Monthly payout method poll</h2>
-            <p className="mt-1 text-xs text-slate-300">
-              (MVP) This is frontend-only right now. Next we’ll store votes in DB.
-            </p>
+            <p className="mt-1 text-xs text-slate-300">(MVP) Frontend-only demo.</p>
 
             <div className="mt-4 space-y-2">
               {pollOptions.map((opt) => (
@@ -349,12 +434,10 @@ export default function CircleDetailsPage() {
             </div>
           </div>
 
-          {/* Wheel card */}
+          {/* Wheel demo */}
           <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
             <h2 className="text-sm font-semibold">Wheel pick (demo)</h2>
-            <p className="mt-1 text-xs text-slate-300">
-              Spins from <b>APPROVED</b> members only.
-            </p>
+            <p className="mt-1 text-xs text-slate-300">Spins from APPROVED members only.</p>
 
             <div className="mt-4 flex items-center justify-center">
               <canvas
@@ -388,7 +471,7 @@ export default function CircleDetailsPage() {
       </div>
 
       <footer className="mx-auto max-w-6xl px-4 pb-8 text-xs text-slate-400">
-        CircleSave • MVP circle details page
+        CircleSave • Admin approvals + members + wheel demo
       </footer>
     </main>
   );

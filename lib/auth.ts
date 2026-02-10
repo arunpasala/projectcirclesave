@@ -1,32 +1,26 @@
 import jwt from "jsonwebtoken";
 import { NextRequest } from "next/server";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
-
-export function getBearerToken(req: NextRequest) {
-  const h = req.headers.get("authorization") || "";
-  const [type, token] = h.split(" ");
-  if (type !== "Bearer" || !token) return null;
-  return token.trim();
-}
-
-export function requireUserId(req: NextRequest): number {
-  const token = getBearerToken(req);
-  if (!token) throw new Error("Missing token");
+export function getUserIdFromAuthHeader(req: NextRequest): number | null {
+  const auth = req.headers.get("authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token) return null;
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as any;
-    const userId = payload?.userId;
-    if (!userId) throw new Error("Invalid token");
-    return userId;
+    const payload = jwt.verify(token, process.env.JWT_SECRET || "dev_secret") as any;
+    const id = Number(payload?.userId);
+    return Number.isFinite(id) ? id : null;
   } catch {
-    throw new Error("Invalid token");
+    return null;
   }
 }
 
-export function monthKeyNow() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
+// ✅ add this so older routes stop breaking
+export function requireUserId(req: NextRequest): number {
+  const id = getUserIdFromAuthHeader(req);
+  if (!id) {
+    // throw so the route can catch it OR just return error in route
+    throw new Error("Unauthorized");
+  }
+  return id;
 }
