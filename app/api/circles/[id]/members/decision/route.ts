@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { getUserIdFromAuthHeader } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -8,117 +8,96 @@ type Decision = "APPROVE" | "REJECT" | "REMOVE";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const actorId = getUserIdFromAuthHeader(req);
-    if (!actorId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actorId = requireUserId(req);
 
-    const circleId = Number(params.id);
+    const { id } = await params; // ✅ Next.js 16 fix
+    const circleId = Number(id);
     if (!Number.isFinite(circleId)) {
       return NextResponse.json({ error: "Invalid circle id" }, { status: 400 });
     }
 
     const body = await req.json().catch(() => null);
-    const userId = Number(body?.userId);
+    const targetUserId = Number(body?.userId);
     const decision = String(body?.decision || "").toUpperCase() as Decision;
 
-    if (!Number.isFinite(userId)) {
+    if (!Number.isFinite(targetUserId)) {
       return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
     }
     if (!["APPROVE", "REJECT", "REMOVE"].includes(decision)) {
       return NextResponse.json(
-        { error: "Decision must be APPROVE, REJECT, or REMOVE" },
+        { error: "decision must be APPROVE | REJECT | REMOVE" },
         { status: 400 }
       );
     }
 
-    // Only owner OR an ADMIN in that circle can decide
-    const perm = await pool.query(
-      `
-      SELECT
-        c.owner_id,
-        (SELECT cm.role FROM circle_members cm WHERE cm.circle_id = c.id AND cm.user_id = $2) AS actor_role
-      FROM circles c
-      WHERE c.id = $1
-      `,
-      [circleId, actorId]
+    // Only circle owner can decide
+    const circleRes = await pool.query(
+      `SELECT owner_id FROM circles WHERE id = $1`,
+      [circleId]
     );
-
-    if (perm.rowCount === 0) {
+    if (circleRes.rowCount === 0) {
       return NextResponse.json({ error: "Circle not found" }, { status: 404 });
     }
 
-    const { owner_id, actor_role } = perm.rows[0] as {
-      owner_id: number;
-      actor_role: string | null;
-    };
-
-    const isOwner = owner_id === actorId;
-    const isAdmin = actor_role === "ADMIN";
-
-    if (!isOwner && !isAdmin) {
+    const ownerId = Number(circleRes.rows[0].owner_id);
+    if (ownerId !== Number(actorId)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Don’t allow removing/deciding on the owner
-    if (userId === owner_id) {
-      return NextResponse.json(
-        { error: "You cannot modify the circle owner." },
-        { status: 400 }
-      );
-    }
-
-    // Ensure target exists in circle
-    const target = await pool.query(
-      `SELECT status, role FROM circle_members WHERE circle_id=$1 AND user_id=$2`,
-      [circleId, userId]
+    // must exist
+    const cmRes = await pool.query(
+      `SELECT id, status, role FROM circle_members
+       WHERE circle_id = $1 AND user_id = $2`,
+      [circleId, targetUserId]
     );
-    if (target.rowCount === 0) {
+    if (cmRes.rowCount === 0) {
       return NextResponse.json(
-        { error: "User is not in this circle" },
+        { error: "User is not in this circle (no request found)" },
         { status: 404 }
       );
     }
 
-    // Admins shouldn't be able to remove another ADMIN (optional safety)
-    const targetRole = target.rows[0]?.role as string;
-    if (!isOwner && targetRole === "ADMIN") {
+    // optional: never remove owner row
+    if (targetUserId === ownerId && decision === "REMOVE") {
       return NextResponse.json(
-        { error: "Only owner can modify an ADMIN." },
-        { status: 403 }
+        { error: "Cannot remove circle owner" },
+        { status: 400 }
       );
     }
 
     if (decision === "REMOVE") {
       await pool.query(
-        `DELETE FROM circle_members WHERE circle_id=$1 AND user_id=$2`,
-        [circleId, userId]
+        `DELETE FROM circle_members
+         WHERE circle_id = $1 AND user_id = $2`,
+        [circleId, targetUserId]
       );
-      return NextResponse.json({ message: "Member removed" });
+      return NextResponse.json({ ok: true, action: "REMOVED" });
     }
 
-    // APPROVE / REJECT
     const newStatus = decision === "APPROVE" ? "APPROVED" : "REJECTED";
 
-    await pool.query(
-      `
-      UPDATE circle_members
-      SET
-        status = $3,
-        decided_at = NOW(),
-        decided_by = $4,
-        -- set joined_at when approved
-        joined_at = CASE WHEN $3='APPROVED' THEN NOW() ELSE joined_at END
-      WHERE circle_id = $1 AND user_id = $2
-      `,
-      [circleId, userId, newStatus, actorId]
+    const upd = await pool.query(
+      `UPDATE circle_members
+       SET status = $1,
+           decided_at = NOW(),
+           decided_by = $2
+       WHERE circle_id = $3 AND user_id = $4
+       RETURNING circle_id, user_id, role, status, decided_at, decided_by`,
+      [newStatus, actorId, circleId, targetUserId]
     );
 
-    return NextResponse.json({ message: `Member ${newStatus.toLowerCase()}` });
-  } catch (err) {
+    return NextResponse.json({
+      ok: true,
+      action: decision,
+      member: upd.rows[0],
+    });
+  } catch (err: any) {
+    if (err?.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("POST /api/circles/[id]/members/decision error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

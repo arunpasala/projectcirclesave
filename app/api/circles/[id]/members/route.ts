@@ -1,73 +1,91 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { getUserIdFromAuthHeader } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const userId = getUserIdFromAuthHeader(req);
-        if (!userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        const userId = requireUserId(req);
 
-        const circleId = Number(params.id);
+        const { id } = await params; // ✅ Next.js 16 fix
+        const circleId = Number(id);
         if (!Number.isFinite(circleId)) {
             return NextResponse.json({ error: "Invalid circle id" }, { status: 400 });
         }
 
-        // Must be a member (pending/approved) or owner to view members
-        const access = await pool.query(
-            `
-      SELECT
-        c.owner_id,
-        EXISTS (
-          SELECT 1 FROM circle_members cm
-          WHERE cm.circle_id = c.id AND cm.user_id = $2
-        ) AS is_member
-      FROM circles c
-      WHERE c.id = $1
-      `,
-            [circleId, userId]
-        );
-
-        if (access.rowCount === 0) {
-            return NextResponse.json({ error: "Circle not found" }, { status: 404 });
-        }
-
-        const { owner_id, is_member } = access.rows[0] as {
-            owner_id: number;
-            is_member: boolean;
-        };
-
-        if (!is_member && owner_id !== userId) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
-
-        const membersRes = await pool.query(
-            `
-      SELECT
-        cm.user_id,
-        COALESCE(u.full_name, '') AS full_name,
-        u.email,
-        cm.role,
-        cm.status,
-        cm.joined_at
-      FROM circle_members cm
-      JOIN users u ON u.id = cm.user_id
-      WHERE cm.circle_id = $1
-      ORDER BY
-        CASE cm.status WHEN 'PENDING' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END,
-        cm.joined_at ASC
-      `,
+        // Check circle exists + who owns it
+        const circleRes = await pool.query(
+            `SELECT id, owner_id, name, contribution_amount, created_at
+       FROM circles
+       WHERE id = $1`,
             [circleId]
         );
 
-        return NextResponse.json({ members: membersRes.rows });
-    } catch (err) {
+        if (circleRes.rowCount === 0) {
+            return NextResponse.json({ error: "Circle not found" }, { status: 404 });
+        }
+
+        const circle = circleRes.rows[0];
+
+        // Owner can see everyone (including pending + emails)
+        const isOwner = Number(circle.owner_id) === Number(userId);
+
+        // Non-owner must be an APPROVED member to see member list
+        if (!isOwner) {
+            const memCheck = await pool.query(
+                `SELECT 1
+         FROM circle_members
+         WHERE circle_id = $1 AND user_id = $2 AND status = 'APPROVED'`,
+                [circleId, userId]
+            );
+            if (memCheck.rowCount === 0) {
+                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            }
+        }
+
+        // Members list:
+        // - owner: all members
+        // - non-owner: only approved, and hide email
+        const membersRes = await pool.query(
+            isOwner
+                ? `SELECT
+             cm.user_id,
+             COALESCE(u.full_name, '') AS full_name,
+             u.email,
+             cm.role,
+             cm.status,
+             cm.joined_at
+           FROM circle_members cm
+           JOIN users u ON u.id = cm.user_id
+           WHERE cm.circle_id = $1
+           ORDER BY cm.status ASC, cm.joined_at ASC`
+                : `SELECT
+             cm.user_id,
+             COALESCE(u.full_name, '') AS full_name,
+             '' AS email,
+             cm.role,
+             cm.status,
+             cm.joined_at
+           FROM circle_members cm
+           JOIN users u ON u.id = cm.user_id
+           WHERE cm.circle_id = $1 AND cm.status = 'APPROVED'
+           ORDER BY cm.joined_at ASC`,
+            [circleId]
+        );
+
+        return NextResponse.json({
+            circle: { ...circle, isOwner },
+            members: membersRes.rows,
+        });
+    } catch (err: any) {
+        // requireUserId throws "Unauthorized"
+        if (err?.message === "Unauthorized") {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
         console.error("GET /api/circles/[id]/members error:", err);
         return NextResponse.json({ error: "Server error" }, { status: 500 });
     }
