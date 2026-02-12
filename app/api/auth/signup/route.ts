@@ -1,7 +1,9 @@
 // app/api/auth/signup/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import pool from "@/lib/db"; // <-- IMPORTANT: use alias to avoid ../../../ path issues
+import pool from "@/lib/db";
+
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,28 +13,15 @@ export async function POST(req: NextRequest) {
     const password = String(body.password || "");
 
     if (!email || !password) {
-      return NextResponse.json(
-        { error: "Email and password are required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
     }
-
     if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
 
-    // check existing
-    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
-      email,
-    ]);
+    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
     if (existing.rowCount && existing.rowCount > 0) {
-      return NextResponse.json(
-        { error: "Account already exists. Please login." },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: "Account already exists. Please login." }, { status: 409 });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -44,13 +33,13 @@ export async function POST(req: NextRequest) {
       [email, fullName || null, passwordHash]
     );
 
-    return NextResponse.json({ user: result.rows[0] }, { status: 201 });
-  } catch (err: any) {
-    // If JSON parse fails or DB fails
-    console.error("SIGNUP_ERROR:", err?.message || err);
+    // ✅ no OTP here
     return NextResponse.json(
-      { error: "Signup failed. Please try again." },
-      { status: 500 }
+      { user: result.rows[0], message: "Account created. Please login to receive OTP." },
+      { status: 201 }
     );
+  } catch (err: any) {
+    console.error("SIGNUP_ERROR:", err?.message || err);
+    return NextResponse.json({ error: "Signup failed. Please try again." }, { status: 500 });
   }
 }
