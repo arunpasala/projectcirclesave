@@ -17,10 +17,11 @@ export function getUserIdFromAuthHeader(req: NextRequest): number | null {
 
 // ✅ add this so older routes stop breaking
 export function requireUserId(req: NextRequest): number {
+  const auth = req.headers.get("authorization") || "";
+  if (!auth.startsWith("Bearer ")) throw new Error("Missing Bearer token");
+
   const id = getUserIdFromAuthHeader(req);
-  if (!id) {
-    // throw so the route can catch it OR just return error in route
-    throw new Error("Unauthorized");
-  }
+  if (!id) throw new Error("Invalid/expired token");
   return id;
 }
+
