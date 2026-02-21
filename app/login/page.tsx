@@ -30,14 +30,24 @@ export default function LoginPage() {
 
       const data = await res.json().catch(() => ({}));
 
+      // ✅ OTP required → send user to OTP screen
+      if (res.status === 403) {
+        router.push(`/otp?email=${encodeURIComponent(email)}`);
+        return;
+      }
+      
+
       if (!res.ok) {
         setError(data?.error || "Login failed. Please check your credentials.");
         return;
       }
-      // after successful login response
-setToken(data.token);
-router.push("/dashboard");
-      localStorage.setItem("token", data.token);
+
+      // ✅ Successful login
+      if (data?.token) {
+        setToken(data.token);
+        localStorage.setItem("token", data.token);
+      }
+
       router.push("/dashboard");
     } catch {
       setError("Network error. Please try again.");
@@ -66,7 +76,6 @@ router.push("/dashboard");
             Create trusted savings circles, contribute on schedule, and track payouts with transparency.
           </p>
 
-          {/* soft “cards” */}
           <div className="mt-10 grid max-w-lg grid-cols-2 gap-4">
             <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
               <p className="text-sm font-semibold">Invite-only circles</p>
@@ -81,7 +90,6 @@ router.push("/dashboard");
 
         {/* RIGHT (Card) */}
         <section className="w-full">
-          {/* Mobile brand */}
           <div className="mb-8 flex items-center justify-center gap-3 md:hidden">
             <div className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white text-lg font-bold">
               C
@@ -136,7 +144,7 @@ router.push("/dashboard");
                   {error}
                 </div>
               )}
-            
+
               <button
                 type="submit"
                 disabled={loading}
@@ -151,7 +159,10 @@ router.push("/dashboard");
                   className="text-sm font-medium text-blue-600 hover:underline"
                   onClick={() => alert("Forgot password can be added next.")}
                 >
-                  Forgot password?
+              
+              <Link href="/forgot-password" className="text-sm font-medium text-blue-600 hover:underline">
+               Forgot password?
+              </Link>
                 </button>
               </div>
 

@@ -1,111 +1,106 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 
-export default function SignupPage() {
-    const router = useRouter();
-    const [fullName, setFullName] = useState("");
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [showPw, setShowPw] = useState(false);
-    const [error, setError] = useState("");
-    const [loading, setLoading] = useState(false);
+export default function OtpPage() {
+  const router = useRouter();
+  const params = useSearchParams();
 
-    async function onSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        setError("");
-        setLoading(true);
+  const defaultEmail = useMemo(() => params.get("email") ?? "", [params]);
 
-        try {
-            const res = await fetch("/api/auth/signup", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fullName, email, password }),
-            });
+  const [email, setEmail] = useState(defaultEmail);
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string>("");
 
-            const data = await res.json().catch(() => ({}));
+  const onVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg("");
+    setLoading(true);
 
-            if (!res.ok) {
-                setError(data?.error || "Signup failed");
-                return;
-            }
+    try {
+      const res = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, code }), // ✅ IMPORTANT: 'code'
+      });
 
-            // ✅ IMPORTANT: remember email and redirect to OTP
-            localStorage.setItem("pendingOtpEmail", email);
-            router.push(`/otp?email=${encodeURIComponent(email)}`);
-        } catch {
-            setError("Network error");
-        } finally {
-            setLoading(false);
-        }
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(data?.error || "OTP verification failed.");
+        return;
+      }
+
+      setMsg("✅ Email verified! Redirecting to login...");
+      setTimeout(() => router.push("/login"), 700);
+    } catch {
+      setMsg("Network error while verifying OTP.");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    return (
-        <main className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-            <div className="w-full max-w-md rounded-3xl border bg-white p-8 shadow-sm">
-                <h1 className="text-2xl font-bold">Create account</h1>
-                <p className="mt-1 text-sm text-slate-600">Create your account and verify your email.</p>
+  return (
+    <main className="min-h-screen bg-slate-100 text-slate-900 flex items-center justify-center px-4">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-lg ring-1 ring-slate-200">
+        <h2 className="text-xl font-bold">Verify OTP</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Enter the 6-digit OTP generated after login.
+        </p>
 
-                {error && (
-                    <div className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700 ring-1 ring-rose-200">
-                        {error}
-                    </div>
-                )}
+        <form onSubmit={onVerify} className="mt-6 space-y-4">
+          <div>
+            <label className="text-sm font-medium text-slate-700">Email</label>
+            <input
+              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              type="email"
+              required
+            />
+          </div>
 
-                <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-                    <div>
-                        <label className="text-sm font-medium">Full name</label>
-                        <input
-                            className="mt-2 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2"
-                            value={fullName}
-                            onChange={(e) => setFullName(e.target.value)}
-                            placeholder="Arun"
-                            required
-                        />
-                    </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700">OTP</label>
+            <input
+              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm tracking-widest outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+              value={code}
+              onChange={(e) =>
+                setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              placeholder="123456"
+              inputMode="numeric"
+              maxLength={6}
+              required
+            />
+          </div>
 
-                    <div>
-                        <label className="text-sm font-medium">Email</label>
-                        <input
-                            type="email"
-                            className="mt-2 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="test3@gmail.com"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="text-sm font-medium">Password</label>
-                        <div className="mt-2 flex gap-2">
-                            <input
-                                type={showPw ? "text" : "password"}
-                                className="w-full rounded-xl border px-4 py-3 outline-none focus:ring-2"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Pass@1234"
-                                required
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setShowPw((s) => !s)}
-                                className="rounded-xl border px-4 py-3 text-sm font-semibold hover:bg-slate-50"
-                            >
-                                {showPw ? "Hide" : "Show"}
-                            </button>
-                        </div>
-                    </div>
-
-                    <button
-                        disabled={loading}
-                        className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                    >
-                        {loading ? "Creating..." : "Create account"}
-                    </button>
-                </form>
+          {msg && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+              {msg}
             </div>
-        </main>
-    );
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+          >
+            {loading ? "Verifying..." : "Verify OTP"}
+          </button>
+
+          <button
+            type="button"
+            className="w-full rounded-2xl border border-slate-300 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            onClick={() => router.push("/login")}
+          >
+            Back to Login
+          </button>
+        </form>
+      </div>
+    </main>
+  );
 }

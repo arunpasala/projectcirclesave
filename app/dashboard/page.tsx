@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getToken, logout } from "@/lib/client-auth";
 
 type Circle = {
@@ -17,7 +17,8 @@ function cls(...xs: Array<string | false | null | undefined>) {
 }
 
 export default function DashboardPage() {
-  const token = useMemo(() => getToken(), []);
+  // ✅ never read localStorage during render
+  const [token, setToken] = useState<string>("");
 
   const [loading, setLoading] = useState(true);
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -37,19 +38,21 @@ export default function DashboardPage() {
   const [joinBusy, setJoinBusy] = useState(false);
 
   useEffect(() => {
-    if (!token) {
+    const t = getToken();
+    if (!t) {
       window.location.href = "/login";
       return;
     }
-  }, [token]);
+    setToken(t);
+  }, []);
 
-  const loadCircles = async () => {
+  const loadCircles = async (tkn: string) => {
     setError("");
     setLoading(true);
     try {
       const res = await fetch("/api/circles/my", {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${tkn}` },
       });
 
       if (!res.ok) {
@@ -68,7 +71,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!token) return;
-    loadCircles();
+    loadCircles(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -86,6 +89,10 @@ export default function DashboardPage() {
     }
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       setCreateErr("Contribution amount must be a valid number > 0.");
+      return;
+    }
+    if (!token) {
+      setCreateErr("Not logged in. Please login again.");
       return;
     }
 
@@ -110,10 +117,8 @@ export default function DashboardPage() {
 
       setCreateMsg("Circle created successfully ✅");
       setCreateName("");
-      // keep amount
 
-      // refresh list
-      await loadCircles();
+      await loadCircles(token);
     } catch (e: any) {
       setCreateErr(e?.message || "Create failed");
     } finally {
@@ -131,6 +136,10 @@ export default function DashboardPage() {
       setJoinErr("Enter a valid Circle ID (number).");
       return;
     }
+    if (!token) {
+      setJoinErr("Not logged in. Please login again.");
+      return;
+    }
 
     setJoinBusy(true);
     try {
@@ -144,8 +153,6 @@ export default function DashboardPage() {
       });
 
       const data = await res.json().catch(() => ({}));
-
-      // Your API currently can return 409 for "already member" etc.
       if (!res.ok) {
         throw new Error(data?.error || `Join failed (${res.status})`);
       }
@@ -153,8 +160,7 @@ export default function DashboardPage() {
       setJoinMsg(data?.message || "Join request submitted ✅");
       setJoinId("");
 
-      // refresh list (if your /my includes pending/approved)
-      await loadCircles();
+      await loadCircles(token);
     } catch (e: any) {
       setJoinErr(e?.message || "Join failed");
     } finally {
@@ -190,7 +196,7 @@ export default function DashboardPage() {
       </header>
 
       <div className="mx-auto max-w-6xl px-4 py-6">
-        {/* Profile Card (like your screenshot style) */}
+        {/* Profile Card */}
         <section className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-4">
@@ -208,7 +214,7 @@ export default function DashboardPage() {
                 Active circles: {circles.length}
               </span>
               <button
-                onClick={loadCircles}
+                onClick={() => token && loadCircles(token)}
                 className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#0b1220] hover:bg-white/90 ring-1 ring-white/20"
               >
                 Refresh
@@ -268,9 +274,7 @@ export default function DashboardPage() {
 
                     <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
                       <span>Owner: {c.owner_id}</span>
-                      <span>
-                        {new Date(c.created_at).toLocaleDateString()}
-                      </span>
+                      <span>{new Date(c.created_at).toLocaleDateString()}</span>
                     </div>
                   </div>
                 ))
