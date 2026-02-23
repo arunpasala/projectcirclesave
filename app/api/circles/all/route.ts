@@ -4,19 +4,33 @@ import { requireUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
+/**
+ * Returns all circles, plus the current user's membership status (if any).
+ * myStatus: "NONE" | "PENDING" | "APPROVED" | "REJECTED"
+ */
 export async function GET(req: NextRequest) {
   try {
-    // require auth (since you want dashboard protected)
-    requireUserId(req);
+    const userId = requireUserId(req);
 
-    const r = await pool.query(
-      `SELECT id, owner_id, name, contribution_amount, created_at
-       FROM circles
-       ORDER BY created_at DESC`
+    const q = await pool.query(
+      `
+      SELECT
+        c.id,
+        c.owner_id,
+        c.name,
+        c.contribution_amount,
+        c.created_at,
+        COALESCE(cm.status, 'NONE') AS my_status
+      FROM circles c
+      LEFT JOIN circle_members cm
+        ON cm.circle_id = c.id AND cm.user_id = $1
+      ORDER BY c.created_at DESC
+      `,
+      [userId]
     );
 
-    return NextResponse.json({ circles: r.rows });
+    return NextResponse.json({ circles: q.rows });
   } catch (e: any) {
-    return NextResponse.json({ message: e.message || "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }

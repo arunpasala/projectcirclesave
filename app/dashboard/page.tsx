@@ -1,14 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getToken, logout } from "@/lib/client-auth";
+import { useEffect, useMemo, useState } from "react";
+import TopNav from "../components/TopNav";
+import { getToken } from "@/lib/client-auth";
 
-type Circle = {
+type CircleRow = {
   id: number;
   owner_id: number;
   name: string;
   contribution_amount: string;
+  created_at: string;
+  status?: "PENDING" | "APPROVED" | "REJECTED";
+  my_status?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+};
+
+type JoinReq = {
+  request_id: number;
+  circle_id: number;
+  circle_name: string;
+  requester_id: number;
+  requester_email: string;
+  requester_name: string;
+  requested_at: string;
+  status: "PENDING";
+};
+
+type Notif = {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  is_read: boolean;
   created_at: string;
 };
 
@@ -16,26 +39,53 @@ function cls(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function Section({
+  title,
+  subtitle,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-start justify-between gap-4 text-left"
+      >
+        <div>
+          <div className="text-base font-semibold">{title}</div>
+          {subtitle ? <div className="mt-1 text-sm text-slate-600">{subtitle}</div> : null}
+        </div>
+        <div className="text-slate-500">{open ? "▾" : "▸"}</div>
+      </button>
+
+      {open && <div className="mt-4">{children}</div>}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-  // ✅ never read localStorage during render
-  const [token, setToken] = useState<string>("");
+  const [token, setToken] = useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [circles, setCircles] = useState<Circle[]>([]);
-  const [error, setError] = useState("");
+  const [my, setMy] = useState<CircleRow[]>([]);
+  const [all, setAll] = useState<CircleRow[]>([]);
+  const [requests, setRequests] = useState<JoinReq[]>([]);
+  const [notifs, setNotifs] = useState<Notif[]>([]);
 
-  // Create circle form
-  const [createName, setCreateName] = useState("");
-  const [createAmount, setCreateAmount] = useState<string>("50");
-  const [createMsg, setCreateMsg] = useState("");
-  const [createErr, setCreateErr] = useState("");
-  const [createBusy, setCreateBusy] = useState(false);
+  const [busyJoinId, setBusyJoinId] = useState<number | null>(null);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
 
-  // Join circle form
-  const [joinId, setJoinId] = useState("");
-  const [joinMsg, setJoinMsg] = useState("");
-  const [joinErr, setJoinErr] = useState("");
-  const [joinBusy, setJoinBusy] = useState(false);
+  const [openMy, setOpenMy] = useState(true);
+  const [openAll, setOpenAll] = useState(true);
+  const [openReq, setOpenReq] = useState(true);
+  const [openNotif, setOpenNotif] = useState(true);
 
   useEffect(() => {
     const t = getToken();
@@ -46,356 +96,363 @@ export default function DashboardPage() {
     setToken(t);
   }, []);
 
-  const loadCircles = async (tkn: string) => {
-    setError("");
-    setLoading(true);
-    try {
-      const res = await fetch("/api/circles/my", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${tkn}` },
-      });
+  const reload = async () => {
+    if (!token) return;
+    setErr("");
+    setMsg("");
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || `Failed to load circles (${res.status})`);
+    try {
+      const [myRes, allRes, reqRes, notifRes] = await Promise.all([
+        fetch("/api/circles/my", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/circles/all", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/circles/requests", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/notifications", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+
+      const myData = await myRes.json().catch(() => ({}));
+      const allData = await allRes.json().catch(() => ({}));
+      const reqData = await reqRes.json().catch(() => ({}));
+      const nData = await notifRes.json().catch(() => ({}));
+
+      if (!myRes.ok) throw new Error(myData?.error || "Failed to load My circles");
+      if (!allRes.ok) throw new Error(allData?.error || "Failed to load All circles");
+      // requests might 500 if not owner logic changes; we keep it safe
+      if (!reqRes.ok) {
+        setRequests([]);
+      } else {
+        setRequests(reqData?.requests || []);
+      }
+      if (!notifRes.ok) {
+        setNotifs([]);
+      } else {
+        setNotifs(nData?.notifications || []);
       }
 
-      const data = await res.json();
-      setCircles(data?.circles ?? []);
+      setMy(myData?.circles || []);
+      setAll(allData?.circles || []);
     } catch (e: any) {
-      setError(e?.message || "Something went wrong");
-    } finally {
-      setLoading(false);
+      setErr(e?.message || "Something went wrong");
     }
   };
 
   useEffect(() => {
     if (!token) return;
-    loadCircles(token);
+    reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const onCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateMsg("");
-    setCreateErr("");
+  const requestedMap = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const r of my) m.set(r.id, r.status || "");
+    return m;
+  }, [my]);
 
-    const name = createName.trim();
-    const amountNum = Number(createAmount);
+  const onRequestJoin = async (circleId: number) => {
+    if (!token) return;
+    setBusyJoinId(circleId);
+    setErr("");
+    setMsg("");
 
-    if (!name) {
-      setCreateErr("Circle name is required.");
-      return;
-    }
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      setCreateErr("Contribution amount must be a valid number > 0.");
-      return;
-    }
-    if (!token) {
-      setCreateErr("Not logged in. Please login again.");
-      return;
-    }
-
-    setCreateBusy(true);
-    try {
-      const res = await fetch("/api/circles/create", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name,
-          contributionAmount: amountNum,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `Create failed (${res.status})`);
-      }
-
-      setCreateMsg("Circle created successfully ✅");
-      setCreateName("");
-
-      await loadCircles(token);
-    } catch (e: any) {
-      setCreateErr(e?.message || "Create failed");
-    } finally {
-      setCreateBusy(false);
-    }
-  };
-
-  const onJoin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setJoinMsg("");
-    setJoinErr("");
-
-    const id = Number(joinId);
-    if (!Number.isFinite(id) || id <= 0) {
-      setJoinErr("Enter a valid Circle ID (number).");
-      return;
-    }
-    if (!token) {
-      setJoinErr("Not logged in. Please login again.");
-      return;
-    }
-
-    setJoinBusy(true);
     try {
       const res = await fetch("/api/circles/join", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ circleId: id }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ circleId }),
       });
-
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `Join failed (${res.status})`);
-      }
-
-      setJoinMsg(data?.message || "Join request submitted ✅");
-      setJoinId("");
-
-      await loadCircles(token);
+      if (!res.ok) throw new Error(data?.error || "Join request failed");
+      setMsg(data?.message || "Requested ✅");
+      await reload();
     } catch (e: any) {
-      setJoinErr(e?.message || "Join failed");
+      setErr(e?.message || "Join request failed");
     } finally {
-      setJoinBusy(false);
+      setBusyJoinId(null);
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    window.location.href = "/login";
+  const decide = async (requestId: number, decision: "APPROVE" | "REJECT") => {
+    if (!token) return;
+    setErr("");
+    setMsg("");
+
+    try {
+      const res = await fetch("/api/circles/requests/decide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requestId, decision }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Decision failed");
+      setMsg(`Request ${decision === "APPROVE" ? "approved ✅" : "rejected ❌"}`);
+      await reload();
+    } catch (e: any) {
+      setErr(e?.message || "Decision failed");
+    }
   };
 
-  return (
-    <main className="min-h-screen bg-[#0b1220] text-slate-100">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0b1220]/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-white/10 ring-1 ring-white/10" />
-            <div className="leading-tight">
-              <div className="text-sm font-semibold">CircleSave</div>
-              <div className="text-[11px] text-slate-300">Dashboard</div>
-            </div>
-          </Link>
+  const markRead = async (id: number) => {
+    if (!token) return;
+    await fetch("/api/notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ notificationId: id }),
+    }).catch(() => {});
+    reload();
+  };
 
+  const myApproved = my.filter((x) => x.status === "APPROVED");
+  const myPending = my.filter((x) => x.status === "PENDING");
+
+  return (
+    <main className="min-h-screen bg-slate-100 text-slate-900">
+      <TopNav />
+
+      {/* login-like gradient */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[380px] bg-gradient-to-b from-blue-50 via-slate-100 to-transparent" />
+
+      <div className="relative mx-auto max-w-6xl px-4 py-8">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight">Dashboard</h1>
+            <p className="mt-1 text-sm text-slate-600">
+              My circles • Requests • Notifications • Explore all circles
+            </p>
+          </div>
           <button
-            onClick={handleLogout}
-            className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium ring-1 ring-white/10 hover:bg-white/15"
+            onClick={reload}
+            className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
           >
-            Logout
+            Refresh
           </button>
         </div>
-      </header>
 
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        {/* Profile Card */}
-        <section className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="h-14 w-14 rounded-2xl bg-white/10 ring-1 ring-white/10" />
-              <div>
-                <div className="text-lg font-semibold">Welcome back 👋</div>
-                <div className="mt-1 text-sm text-slate-300">
-                  Manage circles • Create • Join • Track progress
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/10">
-                Active circles: {circles.length}
-              </span>
-              <button
-                onClick={() => token && loadCircles(token)}
-                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#0b1220] hover:bg-white/90 ring-1 ring-white/20"
-              >
-                Refresh
-              </button>
-            </div>
+        {err ? (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {err}
           </div>
+        ) : null}
+        {msg ? (
+          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {msg}
+          </div>
+        ) : null}
 
-          {error ? (
-            <div className="mt-4 rounded-2xl bg-rose-500/10 p-3 text-sm text-rose-200 ring-1 ring-rose-400/20">
-              {error}
-            </div>
-          ) : null}
-        </section>
-
-        {/* Main Grid */}
-        <div className="mt-5 grid gap-4 md:grid-cols-[1.35fr_.65fr]">
-          {/* LEFT: My circles */}
-          <section className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">My Circles</h2>
-              <span className="text-xs text-slate-300">
-                {loading ? "Loading..." : `${circles.length} total`}
-              </span>
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {loading ? (
-                <>
-                  <div className="h-28 rounded-2xl bg-white/5 ring-1 ring-white/10 animate-pulse" />
-                  <div className="h-28 rounded-2xl bg-white/5 ring-1 ring-white/10 animate-pulse" />
-                </>
-              ) : circles.length === 0 ? (
-                <div className="text-sm text-slate-300">
-                  No circles yet. Create one or join by Circle ID.
-                </div>
-              ) : (
-                circles.map((c) => (
-                  <div
-                    key={c.id}
-                    className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10"
-                  >
+        <div className="grid gap-4">
+          {/* My groups */}
+          <Section
+            title={`My Circles (${myApproved.length})`}
+            subtitle="Circles you are already in (approved)."
+            open={openMy}
+            onToggle={() => setOpenMy((v) => !v)}
+          >
+            {myApproved.length === 0 ? (
+              <div className="text-sm text-slate-600">No approved circles yet.</div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {myApproved.map((c) => (
+                  <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold">{c.name}</div>
-                        <div className="mt-1 text-xs text-slate-400">
-                          Circle #{c.id} • ${c.contribution_amount}/month
+                        <div className="mt-1 text-xs text-slate-600">
+                          ${c.contribution_amount}/month • Circle #{c.id}
                         </div>
                       </div>
-
                       <Link
                         href={`/circles/${c.id}`}
-                        className="rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-[#0b1220] hover:bg-white/90 ring-1 ring-white/20"
+                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
                       >
                         Open
                       </Link>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
 
-                    <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                      <span>Owner: {c.owner_id}</span>
-                      <span>{new Date(c.created_at).toLocaleDateString()}</span>
+          {/* Requested */}
+          <Section
+            title={`Groups Requested (${myPending.length})`}
+            subtitle="Requests waiting for admin approval."
+            open={openReq}
+            onToggle={() => setOpenReq((v) => !v)}
+          >
+            {myPending.length === 0 ? (
+              <div className="text-sm text-slate-600">No pending requests.</div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {myPending.map((c) => (
+                  <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-sm font-semibold">{c.name}</div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      ${c.contribution_amount}/month • Circle #{c.id}
+                    </div>
+                    <div className="mt-3 inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                      Requested (Pending)
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-          </section>
+                ))}
+              </div>
+            )}
+          </Section>
 
-          {/* RIGHT: Create + Join */}
-          <aside className="space-y-4">
-            {/* Create Circle */}
-            <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
-              <h2 className="text-sm font-semibold">Create a Circle</h2>
-              <p className="mt-1 text-xs text-slate-300">
-                Start a private circle and invite members.
-              </p>
-
-              <form onSubmit={onCreate} className="mt-4 space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-300">
-                    Circle name
-                  </label>
-                  <input
-                    value={createName}
-                    onChange={(e) => setCreateName(e.target.value)}
-                    placeholder="Feb Saving Group"
-                    className="w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-white/30"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs text-slate-300">
-                    Monthly contribution ($)
-                  </label>
-                  <input
-                    value={createAmount}
-                    onChange={(e) => setCreateAmount(e.target.value)}
-                    inputMode="decimal"
-                    placeholder="50"
-                    className="w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-white/30"
-                  />
-                </div>
-
-                {createErr ? (
-                  <div className="rounded-2xl bg-rose-500/10 p-3 text-sm text-rose-200 ring-1 ring-rose-400/20">
-                    {createErr}
+          {/* Notifications slide-like (simple list now) */}
+          <Section
+            title={`Notifications (${notifs.filter((n) => !n.is_read).length} unread)`}
+            subtitle="Join approvals, join requests, account events."
+            open={openNotif}
+            onToggle={() => setOpenNotif((v) => !v)}
+          >
+            {notifs.length === 0 ? (
+              <div className="text-sm text-slate-600">No notifications yet.</div>
+            ) : (
+              <div className="space-y-3">
+                {notifs.map((n) => (
+                  <div
+                    key={n.id}
+                    className={cls(
+                      "rounded-2xl border p-4",
+                      n.is_read ? "border-slate-200 bg-white" : "border-blue-200 bg-blue-50"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">{n.title}</div>
+                        <div className="mt-1 text-sm text-slate-700">{n.message}</div>
+                        <div className="mt-2 text-xs text-slate-500">
+                          {new Date(n.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                      {!n.is_read ? (
+                        <button
+                          onClick={() => markRead(n.id)}
+                          className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50"
+                        >
+                          Mark read
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                ) : null}
+                ))}
+              </div>
+            )}
+          </Section>
 
-                {createMsg ? (
-                  <div className="rounded-2xl bg-emerald-500/10 p-3 text-sm text-emerald-200 ring-1 ring-emerald-400/20">
-                    {createMsg}
+          {/* Owner pending requests */}
+          <Section
+            title={`Admin Requests (${requests.length})`}
+            subtitle="If you own circles, approve/reject join requests here."
+            open={true}
+            onToggle={() => {}}
+          >
+            {requests.length === 0 ? (
+              <div className="text-sm text-slate-600">No pending requests for your circles.</div>
+            ) : (
+              <div className="space-y-3">
+                {requests.map((r) => (
+                  <div key={r.request_id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-sm font-semibold">{r.circle_name}</div>
+                    <div className="mt-1 text-sm text-slate-700">
+                      Request by: <span className="font-medium">{r.requester_name || r.requester_email}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {new Date(r.requested_at).toLocaleString()}
+                    </div>
+
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => decide(r.request_id, "APPROVE")}
+                        className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => decide(r.request_id, "REJECT")}
+                        className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700"
+                      >
+                        Reject
+                      </button>
+                    </div>
                   </div>
-                ) : null}
+                ))}
+              </div>
+            )}
+          </Section>
 
-                <button
-                  disabled={createBusy}
-                  className={cls(
-                    "w-full rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
-                    createBusy
-                      ? "cursor-not-allowed bg-white/5 text-slate-400 ring-white/10"
-                      : "bg-white text-[#0b1220] hover:bg-white/90 ring-white/20"
-                  )}
-                >
-                  {createBusy ? "Creating..." : "Create Circle"}
-                </button>
-              </form>
-            </div>
+          {/* All circles */}
+          <Section
+            title="All Circles"
+            subtitle="Browse visible circles and request to join."
+            open={openAll}
+            onToggle={() => setOpenAll((v) => !v)}
+          >
+            {all.length === 0 ? (
+              <div className="text-sm text-slate-600">No circles found.</div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {all.map((c) => {
+                  const st = (c.my_status || "NONE") as string;
+                  const isOwner = false; // optional if you want: compare owner_id to me.id using /api/me
+                  const disabled = st === "PENDING" || st === "APPROVED";
 
-            {/* Join Circle */}
-            <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
-              <h2 className="text-sm font-semibold">Join a Circle</h2>
-              <p className="mt-1 text-xs text-slate-300">
-                Enter a Circle ID to request access.
-              </p>
+                  return (
+                    <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="text-sm font-semibold">{c.name}</div>
+                      <div className="mt-1 text-xs text-slate-600">
+                        ${c.contribution_amount}/month • Circle #{c.id}
+                      </div>
 
-              <form onSubmit={onJoin} className="mt-4 space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-300">
-                    Circle ID
-                  </label>
-                  <input
-                    value={joinId}
-                    onChange={(e) => setJoinId(e.target.value)}
-                    placeholder="1"
-                    inputMode="numeric"
-                    className="w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-white/30"
-                  />
-                </div>
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        {st === "APPROVED" ? (
+                          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            Member
+                          </span>
+                        ) : st === "PENDING" ? (
+                          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                            Requested
+                          </span>
+                        ) : st === "REJECTED" ? (
+                          <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                            Rejected (can re-request)
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                            Not a member
+                          </span>
+                        )}
 
-                {joinErr ? (
-                  <div className="rounded-2xl bg-rose-500/10 p-3 text-sm text-rose-200 ring-1 ring-rose-400/20">
-                    {joinErr}
-                  </div>
-                ) : null}
-
-                {joinMsg ? (
-                  <div className="rounded-2xl bg-emerald-500/10 p-3 text-sm text-emerald-200 ring-1 ring-emerald-400/20">
-                    {joinMsg}
-                  </div>
-                ) : null}
-
-                <button
-                  disabled={joinBusy}
-                  className={cls(
-                    "w-full rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
-                    joinBusy
-                      ? "cursor-not-allowed bg-white/5 text-slate-400 ring-white/10"
-                      : "bg-white text-[#0b1220] hover:bg-white/90 ring-white/20"
-                  )}
-                >
-                  {joinBusy ? "Requesting..." : "Request to Join"}
-                </button>
-              </form>
-            </div>
-          </aside>
+                        <button
+                          disabled={busyJoinId === c.id || disabled}
+                          onClick={() => onRequestJoin(c.id)}
+                          className={cls(
+                            "rounded-2xl px-4 py-2 text-xs font-semibold shadow-sm",
+                            disabled
+                              ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                              : "bg-blue-600 text-white hover:bg-blue-700"
+                          )}
+                        >
+                          {busyJoinId === c.id
+                            ? "Requesting..."
+                            : st === "PENDING"
+                            ? "Requested"
+                            : st === "APPROVED"
+                            ? "Joined"
+                            : "Request to Join"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Section>
         </div>
-      </div>
 
-      <footer className="mx-auto max-w-6xl px-4 pb-10 pt-6 text-xs text-slate-400">
-        CircleSave • Dashboard (MVP)
-      </footer>
+        <footer className="py-10 text-center text-xs text-slate-500">
+          CircleSave • Dashboard (MVP)
+        </footer>
+      </div>
     </main>
   );
 }

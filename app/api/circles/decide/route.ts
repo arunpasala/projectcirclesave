@@ -1,46 +1,79 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { getUserIdFromRequest } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const adminId = getUserIdFromRequest(req);
-  if (!adminId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const ownerId = requireUserId(req);
+    const body = await req.json().catch(() => ({}));
 
-  const body = await req.json();
-  const circleId = Number(body.circleId);
-  const memberUserId = Number(body.userId);
-  const decision = String(body.decision || "").toUpperCase(); // APPROVE | REJECT
+    const membershipId = Number(body?.membershipId);
+    const decision = String(body?.decision || "").toUpperCase(); // "APPROVE" | "REJECT"
 
-  if (!circleId || !memberUserId || !["APPROVE", "REJECT"].includes(decision)) {
+    if (!Number.isFinite(membershipId) || membershipId <= 0) {
+      return NextResponse.json({ error: "Invalid membershipId" }, { status: 400 });
+    }
+    if (decision !== "APPROVE" && decision !== "REJECT") {
+      return NextResponse.json({ error: "decision must be APPROVE or REJECT" }, { status: 400 });
+    }
+
+    // Load the request + ensure this owner owns the circle
+    const reqRes = await pool.query(
+      `
+      SELECT cm.id, cm.circle_id, cm.user_id, cm.status, c.owner_id, c.name AS circle_name
+      FROM circle_members cm
+      JOIN circles c ON c.id = cm.circle_id
+      WHERE cm.id = $1
+      `,
+      [membershipId]
+    );
+
+    if (reqRes.rowCount === 0) {
+      return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    }
+
+    const row = reqRes.rows[0];
+    if (row.owner_id !== ownerId) {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    }
+    if (row.status !== "PENDING") {
+      return NextResponse.json({ error: "Request is not pending" }, { status: 409 });
+    }
+
+    const newStatus = decision === "APPROVE" ? "APPROVED" : "REJECTED";
+
+    await pool.query(
+      `
+      UPDATE circle_members
+      SET status = $1,
+          decided_at = NOW(),
+          decided_by = $2
+      WHERE id = $3
+      `,
+      [newStatus, ownerId, membershipId]
+    );
+
+    // Notify requester
+    await pool.query(
+      `
+      INSERT INTO notifications (user_id, title, message)
+      VALUES ($1, $2, $3)
+      `,
+      [
+        row.user_id,
+        "Join request update",
+        `Your request to join "${row.circle_name}" (Circle #${row.circle_id}) was ${newStatus}.`,
+      ]
+    ).catch(() => {});
+
+    return NextResponse.json({ ok: true, status: newStatus });
+  } catch (e: any) {
+    console.error("DECIDE_REQUEST_ERROR:", e);
     return NextResponse.json(
-      { error: "circleId, userId, decision(APPROVE|REJECT) required" },
-      { status: 400 }
+      { error: "Failed to decide request", details: String(e?.message || e) },
+      { status: 500 }
     );
   }
-
-  // Must be circle owner (ADMIN)
-  const ownerCheck = await pool.query(
-    "SELECT 1 FROM circles WHERE id=$1 AND owner_id=$2",
-    [circleId, adminId]
-  );
-  if (ownerCheck.rowCount === 0)
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  const newStatus = decision === "APPROVE" ? "APPROVED" : "REJECTED";
-
-  const updated = await pool.query(
-    `
-    UPDATE circle_members
-    SET status=$1, decided_at=NOW(), decided_by=$2
-    WHERE circle_id=$3 AND user_id=$4 AND status='PENDING'
-    RETURNING id, circle_id, user_id, status
-    `,
-    [newStatus, adminId, circleId, memberUserId]
-  );
-
-  if (updated.rowCount === 0) {
-    return NextResponse.json({ error: "No pending request found" }, { status: 404 });
-  }
-
-  return NextResponse.json({ membership: updated.rows[0] });
 }
