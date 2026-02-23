@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { setToken } from "@/lib/client-auth";
-
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,25 +28,20 @@ export default function LoginPage() {
 
       const data = await res.json().catch(() => ({}));
 
-      // ✅ OTP required → send user to OTP screen
-      if (res.status === 403) {
-        router.push(`/otp?email=${encodeURIComponent(email)}`);
+      // ✅ OTP always required -> go to OTP page
+      if (res.status === 403 && data?.code === "VERIFY_OTP_REQUIRED") {
+        const targetEmail = data?.email || email;
+        router.push(`/otp?email=${encodeURIComponent(targetEmail)}`);
         return;
       }
-      
 
       if (!res.ok) {
         setError(data?.error || "Login failed. Please check your credentials.");
         return;
       }
 
-      // ✅ Successful login
-      if (data?.token) {
-        setToken(data.token);
-        localStorage.setItem("token", data.token);
-      }
-
-      router.push("/dashboard");
+      // If server returns 200 here, something is wrong because OTP should be required
+      setError("OTP verification is required. Please try again.");
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -69,11 +62,11 @@ export default function LoginPage() {
           </div>
 
           <h1 className="mt-8 text-5xl font-extrabold leading-tight tracking-tight">
-            Explore the things <span className="text-blue-600">you love.</span>
+            Secure login with <span className="text-blue-600">OTP</span>.
           </h1>
 
           <p className="mt-4 max-w-lg text-lg leading-relaxed text-slate-600">
-            Create trusted savings circles, contribute on schedule, and track payouts with transparency.
+            Every login requires an OTP verification sent to your email for extra security.
           </p>
 
           <div className="mt-10 grid max-w-lg grid-cols-2 gap-4">
@@ -90,6 +83,7 @@ export default function LoginPage() {
 
         {/* RIGHT (Card) */}
         <section className="w-full">
+          {/* Mobile brand */}
           <div className="mb-8 flex items-center justify-center gap-3 md:hidden">
             <div className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white text-lg font-bold">
               C
@@ -100,14 +94,12 @@ export default function LoginPage() {
           <div className="mx-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-lg ring-1 ring-slate-200">
             <h2 className="text-xl font-bold">Log in to CircleSave</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Use your verified email + password.
+              Enter email + password. You’ll verify OTP next.
             </p>
 
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
               <div>
-                <label className="text-sm font-medium text-slate-700">
-                  Email or mobile number
-                </label>
+                <label className="text-sm font-medium text-slate-700">Email</label>
                 <input
                   className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
                   value={email}
@@ -154,16 +146,12 @@ export default function LoginPage() {
               </button>
 
               <div className="text-center">
-                <button
-                  type="button"
+                <Link
+                  href="/forgot-password"
                   className="text-sm font-medium text-blue-600 hover:underline"
-                  onClick={() => alert("Forgot password can be added next.")}
                 >
-              
-              <Link href="/forgot-password" className="text-sm font-medium text-blue-600 hover:underline">
-               Forgot password?
-              </Link>
-                </button>
+                  Forgot password?
+                </Link>
               </div>
 
               <div className="my-2 h-px bg-slate-200" />

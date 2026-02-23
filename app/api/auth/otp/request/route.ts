@@ -1,58 +1,91 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import pool from "@/lib/db";
-import nodemailer from "nodemailer";
-import bcrypt from "bcryptjs";
+import { sendMail } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
-function generateOtp(length = 6) {
-  const min = 10 ** (length - 1);
-  const max = 10 ** length - 1;
-  return String(Math.floor(Math.random() * (max - min + 1)) + min);
+function makeOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+function hashOtp(code: string) {
+  return crypto.createHash("sha256").update(code).digest("hex");
 }
 
 export async function POST(req: NextRequest) {
   try {
     const { email } = await req.json();
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+    const cleanEmail = String(email || "").trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return NextResponse.json({ error: "Email is required." }, { status: 400 });
     }
 
-    const userRes = await pool.query(`SELECT id FROM users WHERE email=$1`, [email]);
+    const userRes = await pool.query("SELECT id FROM users WHERE email=$1", [cleanEmail]);
     if (userRes.rowCount === 0) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
-    const userId = userRes.rows[0].id;
 
-    const otp = generateOtp(6);
-    const otpHash = await bcrypt.hash(otp, 10);
+    const user = userRes.rows[0];
 
-    const ttl = Number(process.env.OTP_TTL_SECONDS || 300);
-    const expiresAt = new Date(Date.now() + ttl * 1000);
-
-    await pool.query(
-      `INSERT INTO otp_codes (user_id, otp_hash, expires_at)
-       VALUES ($1, $2, $3)`,
-      [userId, otpHash, expiresAt]
+    // ✅ rate-limit: allow resend only every 30 seconds
+    const lastOtp = await pool.query(
+      `SELECT created_at FROM otp_codes
+       WHERE user_id=$1
+       ORDER BY id DESC
+       LIMIT 1`,
+      [user.id]
     );
 
-    const transport = nodemailer.createTransport({
-      host: process.env.SMTP_HOST!,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: { user: process.env.SMTP_USER!, pass: process.env.SMTP_PASS! },
+    if (lastOtp.rowCount > 0) {
+      const createdAt = new Date(lastOtp.rows[0].created_at);
+      const diff = Date.now() - createdAt.getTime();
+      if (diff < 30_000) {
+        const wait = Math.ceil((30_000 - diff) / 1000);
+        return NextResponse.json(
+          { error: `Please wait ${wait}s before resending.` },
+          { status: 429 }
+        );
+      }
+    }
+
+    // create new otp
+    const otp = makeOtp();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await pool.query("DELETE FROM otp_codes WHERE user_id=$1", [user.id]);
+    await pool.query(
+      `INSERT INTO otp_codes (user_id, code_hash, expires_at)
+       VALUES ($1,$2,$3)`,
+      [user.id, hashOtp(otp), expiresAt]
+    );
+
+    await sendMail({
+      to: cleanEmail,
+      subject: "Your CircleSave login OTP (Resent)",
+      text:
+        `Your CircleSave OTP is: ${otp}\n\n` +
+        `It expires in 10 minutes.\n\n` +
+        `If you did not request this, ignore this email.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.6">
+          <h2>CircleSave OTP (Resent)</h2>
+          <p>Your OTP is:</p>
+          <div style="font-size:28px;font-weight:700;letter-spacing:2px">${otp}</div>
+          <p><b>Expires in 10 minutes</b>.</p>
+          <p style="color:#666">If you did not request this, ignore this email.</p>
+        </div>
+      `,
     });
 
-    await transport.sendMail({
-      from: process.env.SMTP_FROM!,
-      to: email,
-      subject: "Your CircleSave OTP Code",
-      text: `Your OTP is: ${otp}. It expires in ${Math.floor(ttl / 60)} minutes.`,
-    });
+    console.log(`✅ OTP resent to ${cleanEmail} (expires ${expiresAt.toISOString()})`);
 
-    return NextResponse.json({ message: "OTP sent" });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ ok: true, message: "OTP resent." });
+  } catch (e: any) {
+    console.error("OTP_REQUEST_ERROR:", e);
+    return NextResponse.json(
+      { error: "Server error", details: String(e?.message || e) },
+      { status: 500 }
+    );
   }
 }

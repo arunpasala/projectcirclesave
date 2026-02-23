@@ -6,31 +6,27 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = requireUserId(req.headers.get("authorization"));
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = requireUserId(req); // ✅ pass req, not req.headers
 
-    const { name, contributionAmount } = await req.json();
-    if (!name) return NextResponse.json({ error: "Circle name is required" }, { status: 400 });
+    const body = await req.json();
+    const name = String(body?.name || "").trim();
+    const contributionAmount = Number(body?.contributionAmount);
 
-    const circleRes = await pool.query(
+    if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
+    if (!Number.isFinite(contributionAmount) || contributionAmount <= 0) {
+      return NextResponse.json({ error: "Invalid contributionAmount" }, { status: 400 });
+    }
+
+    const insert = await pool.query(
       `INSERT INTO circles (owner_id, name, contribution_amount)
-       VALUES ($1, $2, $3)
+       VALUES ($1,$2,$3)
        RETURNING id, owner_id, name, contribution_amount, created_at`,
-      [userId, name, contributionAmount ?? 0]
+      [userId, name, contributionAmount]
     );
 
-    const circle = circleRes.rows[0];
-
-    // Owner also becomes a member
-    await pool.query(
-      `INSERT INTO circle_members (circle_id, user_id, role)
-       VALUES ($1, $2, 'owner')`,
-      [circle.id, userId]
-    );
-
-    return NextResponse.json({ circle }, { status: 201 });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ ok: true, circle: insert.rows[0] }, { status: 201 });
+  } catch (e: any) {
+    console.error("CIRCLE_CREATE_ERROR:", e);
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
