@@ -63,7 +63,7 @@ export default function LoginPage() {
           </div>
 
           <h1 className="mt-8 text-5xl font-extrabold leading-tight tracking-tight">
-            Secure login with <span className="text-blue-600">OTP</span>.
+            Secure Savings <span className="text-blue-600">Platform</span>.
           </h1>
 
           <p className="mt-4 max-w-lg text-lg leading-relaxed text-slate-600">

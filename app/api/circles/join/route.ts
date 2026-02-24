@@ -16,7 +16,9 @@ export async function POST(req: NextRequest) {
 
     // circle exists?
     const c = await pool.query("SELECT id, owner_id, name FROM circles WHERE id=$1", [id]);
-    if (c.rowCount === 0) return NextResponse.json({ error: "Circle not found" }, { status: 404 });
+    if (c.rowCount === 0) {
+      return NextResponse.json({ error: "Circle not found" }, { status: 404 });
+    }
 
     const circle = c.rows[0];
 
@@ -30,11 +32,18 @@ export async function POST(req: NextRequest) {
     if (existing.rowCount > 0) {
       const st = String(existing.rows[0].status || "");
       if (st === "APPROVED") {
-        return NextResponse.json({ message: "You are already a member.", status: "APPROVED" }, { status: 200 });
+        return NextResponse.json(
+          { message: "You are already a member.", status: "APPROVED" },
+          { status: 200 }
+        );
       }
       if (st === "PENDING") {
-        return NextResponse.json({ message: "Already requested.", status: "PENDING" }, { status: 200 });
+        return NextResponse.json(
+          { message: "Already requested.", status: "PENDING" },
+          { status: 200 }
+        );
       }
+
       // if REJECTED -> allow requesting again
       await pool.query(
         `
@@ -54,21 +63,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Notify circle owner/admin
+    // Notify circle owner/admin (simple schema)
     if (Number(circle.owner_id) !== userId) {
       await pool.query(
         `
-        INSERT INTO notifications (user_id, type, title, message, meta)
-        VALUES ($1, 'JOIN_REQUEST', 'New join request',
-          $2,
-          jsonb_build_object('circleId', $3, 'requesterId', $4)
-        )
+        INSERT INTO notifications (user_id, title, message)
+        VALUES ($1, $2, $3)
         `,
         [
-          circle.owner_id,
-          `A user requested to join your circle "${circle.name}".`,
-          circle.id,
-          userId,
+          Number(circle.owner_id),
+          "New join request",
+          `User ${userId} requested to join your circle "${circle.name}".`,
         ]
       );
     }

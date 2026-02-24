@@ -31,14 +31,24 @@ export default function CircleDetailsPage() {
   const params = useParams<{ id: string }>();
   const circleId = Number(params?.id);
 
-  const token = useMemo(() => getToken(), []);
+  // ✅ do not break SSR render (client-only)
+  const [token, setToken] = useState("");
+  useEffect(() => {
+    const t = getToken();
+    if (!t) {
+      window.location.href = "/login";
+      return;
+    }
+    setToken(t);
+  }, []);
 
   const [circle, setCircle] = useState<Circle | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
 
-  // action loading states for approve/reject/remove
-  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>(
+    {}
+  );
 
   // Poll demo
   const pollOptions = ["Rotation", "Random", "Wheel"];
@@ -54,15 +64,8 @@ export default function CircleDetailsPage() {
   const [spinResult, setSpinResult] = useState<string>("");
   const [spinning, setSpinning] = useState(false);
 
-  useEffect(() => {
-    if (!token) {
-      window.location.href = "/login";
-      return;
-    }
-  }, [token]);
-
   const load = async () => {
-    if (!token || !Number.isFinite(circleId)) return;
+    if (!token || !Number.isFinite(circleId) || circleId <= 0) return;
 
     setError("");
     try {
@@ -70,14 +73,16 @@ export default function CircleDetailsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const cData = await cRes.json().catch(() => ({}));
-      if (!cRes.ok) throw new Error(cData?.error || `Failed to load circle (${cRes.status})`);
+      if (!cRes.ok)
+        throw new Error(cData?.error || `Failed to load circle (${cRes.status})`);
       setCircle(cData.circle);
 
       const mRes = await fetch(`/api/circles/${circleId}/members`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const mData = await mRes.json().catch(() => ({}));
-      if (!mRes.ok) throw new Error(mData?.error || `Failed to load members (${mRes.status})`);
+      if (!mRes.ok)
+        throw new Error(mData?.error || `Failed to load members (${mRes.status})`);
       setMembers(mData.members || []);
     } catch (e: any) {
       setError(e?.message || "Something went wrong");
@@ -89,9 +94,17 @@ export default function CircleDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, circleId]);
 
-  // draw wheel from approved members
+  // ✅ draw wheel from approved members
   useEffect(() => {
-    const names = members.filter((m) => m.status === "APPROVED").map((m) => m.full_name);
+    const names = members
+      .filter((m) => m.status === "APPROVED")
+      .map((m) => {
+        const n = (m.full_name || "").trim();
+        if (n) return n;
+        // fallback: before @
+        return (m.email || "Member").split("@")[0];
+      });
+
     drawWheel(names);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members]);
@@ -114,7 +127,7 @@ export default function CircleDetailsPage() {
     ctx.fillStyle = "#0b1220";
     ctx.fill();
 
-    if (names.length === 0) {
+    if (!names || names.length === 0) {
       ctx.fillStyle = "#cbd5e1";
       ctx.font = "16px ui-sans-serif, system-ui";
       ctx.textAlign = "center";
@@ -141,7 +154,11 @@ export default function CircleDetailsPage() {
       ctx.fillStyle = "#e2e8f0";
       ctx.font = "12px ui-sans-serif, system-ui";
       ctx.textAlign = "right";
-      ctx.fillText(names[i].slice(0, 16), radius - 14, 4);
+
+      // ✅ FIX: prevent undefined slice crash
+      const safeName = String(names[i] ?? "Member");
+      ctx.fillText(safeName.slice(0, 16), radius - 14, 4);
+
       ctx.restore();
     }
 
@@ -170,11 +187,17 @@ export default function CircleDetailsPage() {
     await new Promise((r) => setTimeout(r, 900));
 
     const winner = approved[Math.floor(Math.random() * approved.length)];
-    setSpinResult(`${winner.full_name} 🎉`);
+    const winnerName =
+      (winner.full_name || "").trim() || (winner.email || "Member").split("@")[0];
+
+    setSpinResult(`${winnerName} 🎉`);
     setSpinning(false);
   };
 
-  const decide = async (userId: number, decision: "APPROVE" | "REJECT" | "REMOVE") => {
+  const decide = async (
+    userId: number,
+    decision: "APPROVE" | "REJECT" | "REMOVE"
+  ) => {
     if (!token) return;
 
     const key = `${decision}:${userId}`;
@@ -194,7 +217,7 @@ export default function CircleDetailsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Action failed (${res.status})`);
 
-      await load(); // refresh list after action
+      await load();
     } catch (e: any) {
       setError(e?.message || "Action failed");
     } finally {
@@ -241,18 +264,26 @@ export default function CircleDetailsPage() {
               <div className="flex items-center gap-4">
                 <div className="h-14 w-14 rounded-2xl bg-white/10 ring-1 ring-white/10" />
                 <div>
-                  <div className="text-lg font-semibold">{circle?.name || "Loading..."}</div>
+                  <div className="text-lg font-semibold">
+                    {circle?.name || "Loading..."}
+                  </div>
                   <div className="mt-1 text-sm text-slate-300">
                     Contribution:{" "}
                     <span className="font-medium text-slate-100">
                       ${circle?.contribution_amount ?? "—"}
                     </span>
                     <span className="mx-2 text-slate-500">•</span>
-                    Approved: <span className="font-medium text-slate-100">{approvedCount}</span>
+                    Approved:{" "}
+                    <span className="font-medium text-slate-100">
+                      {approvedCount}
+                    </span>
                     {pendingCount > 0 ? (
                       <>
                         <span className="mx-2 text-slate-500">•</span>
-                        Pending: <span className="font-medium text-amber-200">{pendingCount}</span>
+                        Pending:{" "}
+                        <span className="font-medium text-amber-200">
+                          {pendingCount}
+                        </span>
                       </>
                     ) : null}
                   </div>
@@ -291,26 +322,40 @@ export default function CircleDetailsPage() {
             ) : null}
           </div>
 
-          {/* ✅ Admin Approval UI (Owner only) */}
+          {/* Owner-only pending UI */}
           {circle?.isOwner ? (
             <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold">Join requests</h2>
-                <span className="text-xs text-slate-300">Pending: {pendingCount}</span>
+                <span className="text-xs text-slate-300">
+                  Pending: {pendingCount}
+                </span>
               </div>
 
               {pendingCount === 0 ? (
-                <div className="mt-4 text-sm text-slate-300">No pending requests.</div>
+                <div className="mt-4 text-sm text-slate-300">
+                  No pending requests.
+                </div>
               ) : (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   {pending.map((m) => {
                     const approveKey = `APPROVE:${m.user_id}`;
                     const rejectKey = `REJECT:${m.user_id}`;
+
+                    const displayName =
+                      (m.full_name || "").trim() ||
+                      (m.email || "Member").split("@")[0];
+
                     return (
-                      <div key={m.user_id} className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10">
+                      <div
+                        key={m.user_id}
+                        className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10"
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold">{m.full_name}</div>
+                            <div className="text-sm font-semibold">
+                              {displayName}
+                            </div>
                             <div className="text-xs text-slate-400">{m.email}</div>
                             <div className="mt-2 inline-flex rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-400/20">
                               PENDING
@@ -323,7 +368,9 @@ export default function CircleDetailsPage() {
                               disabled={!!actionLoading[approveKey]}
                               className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-400/20 hover:bg-emerald-500/20 disabled:opacity-60"
                             >
-                              {actionLoading[approveKey] ? "Approving..." : "Approve"}
+                              {actionLoading[approveKey]
+                                ? "Approving..."
+                                : "Approve"}
                             </button>
 
                             <button
@@ -331,7 +378,9 @@ export default function CircleDetailsPage() {
                               disabled={!!actionLoading[rejectKey]}
                               className="rounded-xl bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-200 ring-1 ring-rose-400/20 hover:bg-rose-500/20 disabled:opacity-60"
                             >
-                              {actionLoading[rejectKey] ? "Rejecting..." : "Reject"}
+                              {actionLoading[rejectKey]
+                                ? "Rejecting..."
+                                : "Reject"}
                             </button>
                           </div>
                         </div>
@@ -347,7 +396,9 @@ export default function CircleDetailsPage() {
           <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Members</h2>
-              <span className="text-xs text-slate-300">Approved: {approvedCount}</span>
+              <span className="text-xs text-slate-300">
+                Approved: {approvedCount}
+              </span>
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -357,14 +408,22 @@ export default function CircleDetailsPage() {
                 members.map((m) => {
                   const removeKey = `REMOVE:${m.user_id}`;
                   const canRemove =
-                    circle?.isOwner &&
-                    m.role !== "OWNER"; // don’t remove owner from UI
+                    circle?.isOwner && m.role !== "OWNER";
+
+                  const displayName =
+                    (m.full_name || "").trim() ||
+                    (m.email || "Member").split("@")[0];
 
                   return (
-                    <div key={m.user_id} className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10">
+                    <div
+                      key={m.user_id}
+                      className="rounded-2xl bg-[#0f172a] p-4 ring-1 ring-white/10"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold">{m.full_name}</div>
+                          <div className="text-sm font-semibold">
+                            {displayName}
+                          </div>
                           <div className="text-xs text-slate-400">{m.email}</div>
                         </div>
 
@@ -392,7 +451,9 @@ export default function CircleDetailsPage() {
                               disabled={!!actionLoading[removeKey]}
                               className="rounded-xl bg-white/10 px-3 py-2 text-[11px] font-semibold ring-1 ring-white/10 hover:bg-white/15 disabled:opacity-60"
                             >
-                              {actionLoading[removeKey] ? "Removing..." : "Remove"}
+                              {actionLoading[removeKey]
+                                ? "Removing..."
+                                : "Remove"}
                             </button>
                           ) : null}
                         </div>
@@ -409,8 +470,12 @@ export default function CircleDetailsPage() {
         <aside className="space-y-4">
           {/* Poll demo */}
           <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
-            <h2 className="text-sm font-semibold">Monthly payout method poll</h2>
-            <p className="mt-1 text-xs text-slate-300">(MVP) Frontend-only demo.</p>
+            <h2 className="text-sm font-semibold">
+              Monthly payout method poll
+            </h2>
+            <p className="mt-1 text-xs text-slate-300">
+              (MVP) Frontend-only demo.
+            </p>
 
             <div className="mt-4 space-y-2">
               {pollOptions.map((opt) => (
@@ -427,7 +492,9 @@ export default function CircleDetailsPage() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-semibold">{opt}</span>
-                    <span className="text-xs text-slate-300">{votes[opt] || 0}</span>
+                    <span className="text-xs text-slate-300">
+                      {votes[opt] || 0}
+                    </span>
                   </div>
                 </button>
               ))}
@@ -437,7 +504,9 @@ export default function CircleDetailsPage() {
           {/* Wheel demo */}
           <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
             <h2 className="text-sm font-semibold">Wheel pick (demo)</h2>
-            <p className="mt-1 text-xs text-slate-300">Spins from APPROVED members only.</p>
+            <p className="mt-1 text-xs text-slate-300">
+              Spins from APPROVED members only.
+            </p>
 
             <div className="mt-4 flex items-center justify-center">
               <canvas
@@ -471,7 +540,7 @@ export default function CircleDetailsPage() {
       </div>
 
       <footer className="mx-auto max-w-6xl px-4 pb-8 text-xs text-slate-400">
-        CircleSave • Admin approvals + members + wheel demo
+        CircleSave • Members + approvals + wheel demo
       </footer>
     </main>
   );

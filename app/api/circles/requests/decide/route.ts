@@ -16,7 +16,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid requestId" }, { status: 400 });
     }
     if (dec !== "APPROVE" && dec !== "REJECT") {
-      return NextResponse.json({ error: "Decision must be APPROVE or REJECT" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Decision must be APPROVE or REJECT" },
+        { status: 400 }
+      );
     }
 
     const row = await pool.query(
@@ -35,9 +38,12 @@ export async function POST(req: NextRequest) {
       [rid]
     );
 
-    if (row.rowCount === 0) return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    if (row.rowCount === 0) {
+      return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    }
 
     const reqRow = row.rows[0];
+
     if (Number(reqRow.owner_id) !== ownerId) {
       return NextResponse.json({ error: "Not allowed" }, { status: 403 });
     }
@@ -56,25 +62,24 @@ export async function POST(req: NextRequest) {
       [newStatus, ownerId, rid]
     );
 
-    // notify requester
+    // notify requester (simple schema)
     await pool.query(
       `
-      INSERT INTO notifications (user_id, type, title, message, meta)
-      VALUES ($1, 'JOIN_DECISION', $2, $3,
-        jsonb_build_object('circleId',$4,'status',$5)
-      )
+      INSERT INTO notifications (user_id, title, message)
+      VALUES ($1, $2, $3)
       `,
       [
-        reqRow.requester_id,
+        Number(reqRow.requester_id),
         `Join request ${newStatus === "APPROVED" ? "approved ✅" : "rejected ❌"}`,
         `Your request to join "${reqRow.circle_name}" was ${newStatus.toLowerCase()}.`,
-        reqRow.circle_id,
-        newStatus,
       ]
     );
 
     return NextResponse.json({ ok: true, status: newStatus });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
