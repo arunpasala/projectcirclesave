@@ -15,9 +15,9 @@ Demonstrate graduate-level system design, threat modeling, and validation
 
 🧱 System Architecture
 Next.js (Frontend)
-        ↓
+↓
 Next.js API Routes (Backend)
-        ↓
+↓
 PostgreSQL (Docker)
 
 Key Characteristics
@@ -104,23 +104,23 @@ Token-based session handling
 
 🗂 Project Structure
 app/
- ├── api/
- │   ├── auth/
- │   │   ├── login/
- │   │   ├── signup/
- │   │   └── otp/
- │   ├── circles/
- │   │   ├── create/
- │   │   ├── join/
- │   │   └── my/
- │   └── db-check/
- ├── login/
- ├── signup/
- ├── dashboard/
- └── globals.css
+├── api/
+│ ├── auth/
+│ │ ├── login/
+│ │ ├── signup/
+│ │ └── otp/
+│ ├── circles/
+│ │ ├── create/
+│ │ ├── join/
+│ │ └── my/
+│ └── db-check/
+├── login/
+├── signup/
+├── dashboard/
+└── globals.css
 
 lib/
- └── auth.ts
+└── auth.ts
 
 🚀 Getting Started
 1️⃣ Clone the repository
@@ -132,10 +132,10 @@ npm install
 
 3️⃣ Start PostgreSQL (Docker)
 docker run --name circlesave_db \
-  -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=circlesave \
-  -p 5432:5432 \
-  -d postgres:16
+ -e POSTGRES_PASSWORD=password \
+ -e POSTGRES_DB=circlesave \
+ -p 5432:5432 \
+ -d postgres:16
 
 4️⃣ Create database tables
 
@@ -143,41 +143,37 @@ Connect to Postgres:
 
 docker exec -it circlesave_db psql -U postgres -d circlesave
 
-
 Create tables:
 
 CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  full_name TEXT,
-  password_hash TEXT NOT NULL,
-  is_verified BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+id SERIAL PRIMARY KEY,
+email TEXT UNIQUE NOT NULL,
+full_name TEXT,
+password_hash TEXT NOT NULL,
+is_verified BOOLEAN DEFAULT FALSE,
+created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE otp_codes (
-  id SERIAL PRIMARY KEY,
-  user_id INT REFERENCES users(id) ON DELETE CASCADE,
-  otp_hash TEXT NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  used BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+id SERIAL PRIMARY KEY,
+user_id INT REFERENCES users(id) ON DELETE CASCADE,
+otp_hash TEXT NOT NULL,
+expires_at TIMESTAMPTZ NOT NULL,
+used BOOLEAN DEFAULT FALSE,
+created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 5️⃣ Start the app
 npm run dev
-
 
 Open:
 
 http://localhost:3000
 
 🧪 API Testing (Example)
-Invoke-RestMethod `
-  -Uri http://localhost:3000/api/auth/login `
-  -Method POST `
-  -Headers @{ "Content-Type"="application/json" } `
-  -Body '{"email":"test@gmail.com","password":"Pass@1234"}'
+Invoke-RestMethod `  -Uri http://localhost:3000/api/auth/login`
+-Method POST `  -Headers @{ "Content-Type"="application/json" }`
+-Body '{"email":"test@gmail.com","password":"Pass@1234"}'
 
 📚 Academic Context
 
@@ -212,5 +208,5 @@ Deployment (Vercel + managed DB)
 👤 Author
 
 Bala Arun Pasala
-Master’s in Computer Science
+MSc Computer Science
 Aspiring Full-Stack & Security-Focused Software Engineer
