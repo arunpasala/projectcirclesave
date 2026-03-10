@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import TopNav from "../components/TopNav";
+import TopNav from "../../components/TopNav";
 import { getToken } from "@/lib/client-auth";
 
 type CircleRow = {
@@ -60,7 +60,9 @@ function Section({
       >
         <div>
           <div className="text-base font-semibold">{title}</div>
-          {subtitle ? <div className="mt-1 text-sm text-slate-600">{subtitle}</div> : null}
+          {subtitle ? (
+            <div className="mt-1 text-sm text-slate-600">{subtitle}</div>
+          ) : null}
         </div>
         <div className="text-slate-500">{open ? "▾" : "▸"}</div>
       </button>
@@ -103,10 +105,18 @@ export default function DashboardPage() {
 
     try {
       const [myRes, allRes, reqRes, notifRes] = await Promise.all([
-        fetch("/api/circles/my", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/circles/all", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/circles/requests", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/notifications", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/circles/my", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch("/api/circles/all", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch("/api/circles/requests", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch("/api/notifications", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
 
       const myData = await myRes.json().catch(() => ({}));
@@ -114,8 +124,10 @@ export default function DashboardPage() {
       const reqData = await reqRes.json().catch(() => ({}));
       const nData = await notifRes.json().catch(() => ({}));
 
-      if (!myRes.ok) throw new Error(myData?.error || "Failed to load My circles");
-      if (!allRes.ok) throw new Error(allData?.error || "Failed to load All circles");
+      if (!myRes.ok)
+        throw new Error(myData?.error || "Failed to load My circles");
+      if (!allRes.ok)
+        throw new Error(allData?.error || "Failed to load All circles");
       // requests might 500 if not owner logic changes; we keep it safe
       if (!reqRes.ok) {
         setRequests([]);
@@ -156,7 +168,10 @@ export default function DashboardPage() {
     try {
       const res = await fetch("/api/circles/join", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ circleId }),
       });
       const data = await res.json().catch(() => ({}));
@@ -178,12 +193,17 @@ export default function DashboardPage() {
     try {
       const res = await fetch("/api/circles/requests/decide", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ requestId, decision }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Decision failed");
-      setMsg(`Request ${decision === "APPROVE" ? "approved ✅" : "rejected ❌"}`);
+      setMsg(
+        `Request ${decision === "APPROVE" ? "approved ✅" : "rejected ❌"}`,
+      );
       await reload();
     } catch (e: any) {
       setErr(e?.message || "Decision failed");
@@ -194,7 +214,10 @@ export default function DashboardPage() {
     if (!token) return;
     await fetch("/api/notifications", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ notificationId: id }),
     }).catch(() => {});
     reload();
@@ -213,7 +236,9 @@ export default function DashboardPage() {
       <div className="relative mx-auto max-w-6xl px-4 py-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight">Dashboard</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight">
+              Dashboard
+            </h1>
             <p className="mt-1 text-sm text-slate-600">
               My circles • Requests • Notifications • Explore all circles
             </p>
@@ -246,11 +271,16 @@ export default function DashboardPage() {
             onToggle={() => setOpenMy((v) => !v)}
           >
             {myApproved.length === 0 ? (
-              <div className="text-sm text-slate-600">No approved circles yet.</div>
+              <div className="text-sm text-slate-600">
+                No approved circles yet.
+              </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 {myApproved.map((c) => (
-                  <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div
+                    key={c.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold">{c.name}</div>
@@ -283,7 +313,10 @@ export default function DashboardPage() {
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 {myPending.map((c) => (
-                  <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div
+                    key={c.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4"
+                  >
                     <div className="text-sm font-semibold">{c.name}</div>
                     <div className="mt-1 text-xs text-slate-600">
                       ${c.contribution_amount}/month • Circle #{c.id}
@@ -305,7 +338,9 @@ export default function DashboardPage() {
             onToggle={() => setOpenNotif((v) => !v)}
           >
             {notifs.length === 0 ? (
-              <div className="text-sm text-slate-600">No notifications yet.</div>
+              <div className="text-sm text-slate-600">
+                No notifications yet.
+              </div>
             ) : (
               <div className="space-y-3">
                 {notifs.map((n) => (
@@ -313,13 +348,17 @@ export default function DashboardPage() {
                     key={n.id}
                     className={cls(
                       "rounded-2xl border p-4",
-                      n.is_read ? "border-slate-200 bg-white" : "border-blue-200 bg-blue-50"
+                      n.is_read
+                        ? "border-slate-200 bg-white"
+                        : "border-blue-200 bg-blue-50",
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold">{n.title}</div>
-                        <div className="mt-1 text-sm text-slate-700">{n.message}</div>
+                        <div className="mt-1 text-sm text-slate-700">
+                          {n.message}
+                        </div>
                         <div className="mt-2 text-xs text-slate-500">
                           {new Date(n.created_at).toLocaleString()}
                         </div>
@@ -347,14 +386,22 @@ export default function DashboardPage() {
             onToggle={() => {}}
           >
             {requests.length === 0 ? (
-              <div className="text-sm text-slate-600">No pending requests for your circles.</div>
+              <div className="text-sm text-slate-600">
+                No pending requests for your circles.
+              </div>
             ) : (
               <div className="space-y-3">
                 {requests.map((r) => (
-                  <div key={r.request_id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div
+                    key={r.request_id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4"
+                  >
                     <div className="text-sm font-semibold">{r.circle_name}</div>
                     <div className="mt-1 text-sm text-slate-700">
-                      Request by: <span className="font-medium">{r.requester_name || r.requester_email}</span>
+                      Request by:{" "}
+                      <span className="font-medium">
+                        {r.requester_name || r.requester_email}
+                      </span>
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
                       {new Date(r.requested_at).toLocaleString()}
@@ -397,7 +444,10 @@ export default function DashboardPage() {
                   const disabled = st === "PENDING" || st === "APPROVED";
 
                   return (
-                    <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div
+                      key={c.id}
+                      className="rounded-2xl border border-slate-200 bg-white p-4"
+                    >
                       <div className="text-sm font-semibold">{c.name}</div>
                       <div className="mt-1 text-xs text-slate-600">
                         ${c.contribution_amount}/month • Circle #{c.id}
@@ -429,16 +479,16 @@ export default function DashboardPage() {
                             "rounded-2xl px-4 py-2 text-xs font-semibold shadow-sm",
                             disabled
                               ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                              : "bg-blue-600 text-white hover:bg-blue-700"
+                              : "bg-blue-600 text-white hover:bg-blue-700",
                           )}
                         >
                           {busyJoinId === c.id
                             ? "Requesting..."
                             : st === "PENDING"
-                            ? "Requested"
-                            : st === "APPROVED"
-                            ? "Joined"
-                            : "Request to Join"}
+                              ? "Requested"
+                              : st === "APPROVED"
+                                ? "Joined"
+                                : "Request to Join"}
                         </button>
                       </div>
                     </div>

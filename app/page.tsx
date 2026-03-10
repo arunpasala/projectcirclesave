@@ -1,5 +1,5 @@
 import Link from "next/link";
-import TopNav from "./components/TopNav";
+import TopNav from "../components/TopNav";
 
 export default function HomePage() {
   return (
@@ -11,11 +11,13 @@ export default function HomePage() {
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-blue-50 via-slate-100 to-slate-100" />
         <div className="relative mx-auto max-w-6xl px-4 py-12">
           <h1 className="text-5xl font-extrabold leading-tight tracking-tight">
-            Secure savings circles <span className="text-blue-600">with OTP.</span>
+            Secure savings circles{" "}
+            <span className="text-blue-600">with OTP.</span>
           </h1>
           <p className="mt-4 max-w-2xl text-lg text-slate-600">
-            CircleSave helps a group save together transparently. You create a circle, invite members,
-            everyone contributes monthly, and payouts happen in a fair, trackable way.
+            CircleSave helps a group save together transparently. You create a
+            circle, invite members, everyone contributes monthly, and payouts
+            happen in a fair, trackable way.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -41,15 +43,19 @@ export default function HomePage() {
               </p>
             </div>
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <div className="text-sm font-semibold">2) Members request to join</div>
+              <div className="text-sm font-semibold">
+                2) Members request to join
+              </div>
               <p className="mt-2 text-sm text-slate-600">
-                Anyone can request. Admin approves/rejects. Requests create notifications.
+                Anyone can request. Admin approves/rejects. Requests create
+                notifications.
               </p>
             </div>
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
               <div className="text-sm font-semibold">3) Track activity</div>
               <p className="mt-2 text-sm text-slate-600">
-                Dashboard shows your circles, requested circles, and notifications.
+                Dashboard shows your circles, requested circles, and
+                notifications.
               </p>
             </div>
           </div>

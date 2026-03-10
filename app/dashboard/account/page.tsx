@@ -1,5 +1,5 @@
 "use client";
-import AppHeader from "@/app/components/AppHeader";
+import AppHeader from "@/components/AppHeader";
 
 export default function AccountPage() {
   return (
