@@ -2,59 +2,43 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+export default function ForgotPasswordPage() {
   const router = useRouter();
   const supabase = createClient();
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [msg, setMsg] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
-  const [error, setError] = useState("");
-
-  // ── Redirect if already logged in ────────────────────────────────────────
-  useEffect(() => {
-    const check = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        router.replace("/dashboard");
-        return;
-      }
-      setChecking(false);
-    };
-    check();
-  }, []);
-
-  // Don't flash the login form to already-authenticated users
-  if (checking) return null;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setMsg(null);
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        // ✅ Supabase sends reset email and redirects here after link is clicked
+        redirectTo: `${window.location.origin}/reset-password`,
       });
 
       if (error) {
-        setError(error.message);
+        setMsg({ type: "error", text: error.message });
         return;
       }
 
-      // User is already verified — signInWithPassword creates a full session
-      router.replace("/dashboard");
+      // ✅ Always show success — don't reveal if email exists
+      setMsg({
+        type: "success",
+        text: "If that email is registered, a reset link has been sent. Check your inbox and spam folder.",
+      });
     } catch {
-      setError("Network error. Please try again.");
+      setMsg({ type: "error", text: "Network error. Please try again." });
     } finally {
       setLoading(false);
     }
@@ -88,29 +72,34 @@ export default function LoginPage() {
         <div className="relative">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            OTP-secured login
+            Account recovery
           </div>
           <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white">
-            Secure Savings{" "}
+            Forgot your{" "}
             <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-              Platform.
+              password?
             </span>
           </h1>
           <p className="mt-4 max-w-sm text-base leading-relaxed text-slate-400">
-            Every login requires an OTP verification sent to your email —
-            keeping your circle and funds protected.
+            No worries. Enter your email and we'll send you a secure link to
+            reset your password and get back to your circle.
           </p>
-          <div className="mt-8 grid grid-cols-2 gap-3">
+          <div className="mt-8 space-y-3">
             {[
-              ["Invite-only circles", "Admin controls membership"],
-              ["No custody", "We never hold funds"],
+              ["Check your inbox", "Look for an email from CircleSave"],
+              ["Check spam too", "Reset emails sometimes land there"],
+              ["Link expires", "Request a new one if it takes too long"],
             ].map(([title, desc]) => (
-              <div
-                key={title}
-                className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm"
-              >
-                <p className="text-sm font-semibold text-white">{title}</p>
-                <p className="mt-1 text-xs text-slate-400">{desc}</p>
+              <div key={title} className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs text-emerald-400">
+                  ✓
+                </span>
+                <div>
+                  <span className="text-sm font-semibold text-white">
+                    {title}
+                  </span>
+                  <span className="ml-2 text-sm text-slate-400">{desc}</span>
+                </div>
               </div>
             ))}
           </div>
@@ -146,11 +135,14 @@ export default function LoginPage() {
 
         <div className="w-full max-w-md">
           <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
+            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
+              <span className="text-2xl">📧</span>
+            </div>
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
-              Welcome back
+              Reset your password
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Enter your credentials. OTP verification comes next.
+              Enter your email and we'll send you a reset link.
             </p>
 
             <form onSubmit={onSubmit} className="mt-7 space-y-5">
@@ -162,46 +154,21 @@ export default function LoginPage() {
                   className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
                   type="email"
+                  placeholder="you@example.com"
                   required
                 />
               </div>
 
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Password
-                  </label>
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs font-medium text-emerald-600 hover:underline"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
-                <input
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Your password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                />
-                <label className="mt-2.5 flex items-center gap-2 text-xs text-slate-500">
-                  <input
-                    type="checkbox"
-                    checked={showPassword}
-                    onChange={(e) => setShowPassword(e.target.checked)}
-                    className="accent-emerald-600"
-                  />
-                  Show password
-                </label>
-              </div>
-
-              {error && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                  {error}
+              {msg && (
+                <div
+                  className={`rounded-2xl border px-4 py-3 text-sm ${
+                    msg.type === "success"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-red-200 bg-red-50 text-red-600"
+                  }`}
+                >
+                  {msg.text}
                 </div>
               )}
 
@@ -210,24 +177,20 @@ export default function LoginPage() {
                 disabled={loading}
                 className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-60"
               >
-                {loading ? "Logging in..." : "Log in →"}
+                {loading ? "Sending..." : "Send reset link →"}
               </button>
-
-              <div className="relative flex items-center gap-3">
-                <div className="h-px flex-1 bg-slate-200" />
-                <span className="text-xs text-slate-400">or</span>
-                <div className="h-px flex-1 bg-slate-200" />
-              </div>
-
-              <Link
-                href="/auth/signup"
-                className="block w-full rounded-2xl border border-emerald-200 py-3 text-center text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
-              >
-                Create new account
-              </Link>
             </form>
           </div>
-          <p className="mt-6 text-center text-xs text-slate-400">
+
+          <button
+            type="button"
+            onClick={() => router.push("/auth/login")}
+            className="mt-4 flex w-full items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-700"
+          >
+            ← Back to login
+          </button>
+
+          <p className="mt-4 text-center text-xs text-slate-400">
             © {new Date().getFullYear()} CircleSave · OTP-secured platform
           </p>
         </div>
