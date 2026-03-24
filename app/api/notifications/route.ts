@@ -1,56 +1,70 @@
+import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
-import pool from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
 
-export const runtime = "nodejs";
-
+// GET /api/notifications — fetch notifications for the logged-in user
 export async function GET(req: NextRequest) {
   try {
-    const userId = requireUserId(req);
+    const supabase = await createClient();
 
-    const r = await pool.query(
-      `
-      SELECT id, title, message, read, created_at
-      FROM notifications
-      WHERE user_id=$1
-      ORDER BY created_at DESC
-      LIMIT 50
-      `,
-      [userId]
-    );
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    return NextResponse.json({ notifications: r.rows });
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ notifications: data || [] });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
 
+// POST /api/notifications — mark a notification as read
 export async function POST(req: NextRequest) {
   try {
-    const userId = requireUserId(req);
-    const { notificationId } = await req.json();
+    const supabase = await createClient();
 
-    const id = Number(notificationId);
-    if (!Number.isFinite(id) || id <= 0) {
-      return NextResponse.json(
-        { error: "Invalid notificationId" },
-        { status: 400 }
-      );
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await pool.query(
-      "UPDATE notifications SET read=true WHERE id=$1 AND user_id=$2",
-      [id, userId]
-    );
+    const body = await req.json().catch(() => ({}));
+    const { notificationId } = body;
 
-    return NextResponse.json({ ok: true });
+    if (!notificationId) {
+      return NextResponse.json({ error: "notificationId is required" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("id", notificationId)
+      .eq("user_id", user.id); // ensure user can only mark their own
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }

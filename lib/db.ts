@@ -1,20 +1,13 @@
-import { Pool } from "pg";
+import { createClient } from "@supabase/supabase-js";
 
-const connectionString = process.env.DATABASE_URL;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!connectionString) {
-  throw new Error("DATABASE_URL is missing in .env.local");
-}
+if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is missing in .env.local");
+if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing in .env.local");
 
-const pool =
-  (globalThis as any).__pgPool ||
-  new Pool({
-    connectionString,
-  });
+// Service role client — server-side only, never import in client components
+// Bypasses Row Level Security — use only in trusted API routes
+const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-// Prevent hot-reload creating new pools
-if (process.env.NODE_ENV !== "production") {
-  (globalThis as any).__pgPool = pool;
-}
-
-export default pool;
+export default supabase;

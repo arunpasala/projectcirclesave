@@ -1,60 +1,75 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function ResetPasswordPage() {
+export default function OtpPage() {
   const router = useRouter();
+  const sp = useSearchParams();
+  const email = useMemo(() => sp.get("email") || "", [sp]);
   const supabase = createClient();
 
-  const [newPassword, setNewPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [msg, setMsg] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sessionReady, setSessionReady] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [cooldown, setCooldown] = useState(30);
 
   useEffect(() => {
-    // ✅ Supabase sends the user here after they click the reset link in email.
-    // The URL contains a token fragment (#access_token=...) which Supabase
-    // automatically exchanges for a session — we just need to confirm it's ready.
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setSessionReady(true); // user arrived via valid reset link
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+    setCooldown(30);
+    const t = setInterval(() => setCooldown((c) => (c > 0 ? c - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [email]);
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMsg(null);
+    setErr("");
     setLoading(true);
 
     try {
-      // ✅ Supabase uses the active PASSWORD_RECOVERY session to update the password
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: "email", // ✅ 6-digit code flow
       });
 
       if (error) {
-        setMsg({ type: "error", text: error.message });
+        setErr(error.message);
         return;
       }
 
-      setMsg({
-        type: "success",
-        text: "Password updated successfully! Redirecting to login...",
-      });
-      setTimeout(() => router.push("/auth/login"), 1500);
+      // ✅ Supabase sets HttpOnly session cookie automatically
+      router.push("/dashboard");
     } catch {
-      setMsg({ type: "error", text: "Network error. Please try again." });
+      setErr("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onResend = async () => {
+    if (cooldown > 0 || !email) return;
+    setErr("");
+    setMsg("");
+    setLoading(true);
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false }, // resend only, don't create new user
+      });
+
+      if (error) {
+        setErr(error.message);
+        return;
+      }
+
+      setMsg("OTP resent — check your inbox and spam folder.");
+      setCooldown(30);
+    } catch {
+      setErr("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -88,22 +103,23 @@ export default function ResetPasswordPage() {
         <div className="relative">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Account recovery
+            Two-factor security
           </div>
           <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white">
-            Set a new{" "}
+            One last step.{" "}
             <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-              password.
+              You're almost in.
             </span>
           </h1>
           <p className="mt-4 max-w-sm text-base leading-relaxed text-slate-400">
-            Choose a strong password to keep your savings circle secure.
+            We sent a 6-digit code to your email. This confirms it's really you
+            — keeping your circle safe.
           </p>
           <div className="mt-8 space-y-3">
             {[
-              ["Min 8 characters", "Longer is always stronger"],
-              ["Avoid reuse", "Don't reuse passwords from other sites"],
-              ["OTP still required", "Every login needs email verification"],
+              ["Check your inbox", "Look for an email from CircleSave"],
+              ["Check spam too", "Gmail sometimes delays OTP emails"],
+              ["Code expires soon", "Request a new one if it doesn't arrive"],
             ].map(([title, desc]) => (
               <div key={title} className="flex items-start gap-3">
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs text-emerald-400">
@@ -151,78 +167,89 @@ export default function ResetPasswordPage() {
         <div className="w-full max-w-md">
           <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
             <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
-              <span className="text-2xl">🔑</span>
+              <span className="text-2xl">✉️</span>
             </div>
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
-              Reset your password
+              Check your email
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Choose a new password for your account.
+              We sent a 6-digit code to{" "}
+              <span className="font-semibold text-slate-700">{email}</span>
             </p>
 
-            {/* Invalid link state — user arrived without PASSWORD_RECOVERY session */}
-            {!sessionReady ? (
-              <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-                <p className="text-sm font-semibold text-amber-700">
-                  Waiting for reset link...
-                </p>
-                <p className="mt-1 text-sm text-amber-600">
-                  Please click the reset link in your email to activate this
-                  page. If you arrived here directly, request a new link.
-                </p>
-                <Link
-                  href="/forgot-password"
-                  className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:underline"
-                >
-                  Request new link →
-                </Link>
-              </div>
-            ) : (
-              <form onSubmit={onSubmit} className="mt-7 space-y-5">
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    New password
-                  </label>
-                  <input
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    type={showPassword ? "text" : "password"}
-                    placeholder="At least 8 characters"
-                    required
-                  />
-                  <label className="mt-2.5 flex items-center gap-2 text-xs text-slate-500">
-                    <input
-                      type="checkbox"
-                      checked={showPassword}
-                      onChange={(e) => setShowPassword(e.target.checked)}
-                      className="accent-emerald-600"
-                    />
-                    Show password
-                  </label>
-                </div>
-
-                {msg && (
-                  <div
-                    className={`rounded-2xl border px-4 py-3 text-sm ${
-                      msg.type === "success"
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-red-200 bg-red-50 text-red-600"
-                    }`}
-                  >
-                    {msg.text}
-                  </div>
-                )}
-
+            {/* ── Wrong email notice ───────────────────────────────────────── */}
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5">
+              <p className="text-xs text-slate-500">
+                Email sent to{" "}
+                <span className="font-semibold text-slate-700">{email}</span>.
+                Not receiving the code?
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                This usually means the email address doesn't exist or isn't
+                reachable.{" "}
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-60"
+                  type="button"
+                  onClick={() => router.push("/auth/signup")}
+                  className="font-semibold text-emerald-600 hover:underline"
                 >
-                  {loading ? "Updating..." : "Update password →"}
+                  Go back and try a different email →
                 </button>
-              </form>
-            )}
+              </p>
+            </div>
+
+            <form onSubmit={onVerify} className="mt-4 space-y-4">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  6-digit OTP code
+                </label>
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="000000"
+                  inputMode="numeric"
+                  maxLength={6}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-center text-2xl font-bold tracking-[0.5em] outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                  required
+                />
+              </div>
+
+              {err && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {err}
+                </div>
+              )}
+              {msg && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  {msg}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-60"
+              >
+                {loading ? "Verifying..." : "Verify & log in →"}
+              </button>
+
+              <button
+                type="button"
+                onClick={onResend}
+                disabled={loading || cooldown > 0}
+                className="w-full rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                {cooldown > 0 ? (
+                  <span>
+                    Resend code in{" "}
+                    <span className="font-bold text-emerald-600">
+                      {cooldown}s
+                    </span>
+                  </span>
+                ) : (
+                  "Resend OTP"
+                )}
+              </button>
+            </form>
           </div>
 
           <button
