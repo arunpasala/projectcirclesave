@@ -1,90 +1,62 @@
-import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-  // Get all circle_ids where user is APPROVED
-  const { data: memberships, error: memberError } = await supabase
-    .from("circle_members")
-    .select("circle_id")
-    .eq("user_id", user.id)
-    .eq("status", "APPROVED");
-
-  if (memberError) {
-    return NextResponse.json({ error: memberError.message }, { status: 500 });
-  }
-
-  const memberCircleIds = memberships?.map((m) => m.circle_id) ?? [];
-
-  // Get circles user OWNS
-  const { data: ownedCircles, error: ownedError } = await supabase
-    .from("circles")
-    .select(`
-      id, name, description, contribution_amount,
-      cycle_length_months, max_members, status, created_at, owner_id
-    `)
-    .eq("owner_id", user.id);
-
-  if (ownedError) {
-    return NextResponse.json({ error: ownedError.message }, { status: 500 });
-  }
-
-  // Get circles user is an APPROVED member of (excluding ones they own)
-  const ownedIds = ownedCircles?.map((c) => c.id) ?? [];
-  const memberOnlyIds = memberCircleIds.filter((id) => !ownedIds.includes(id));
-
-  let memberCircles: typeof ownedCircles = [];
-  if (memberOnlyIds.length > 0) {
-    const { data, error: memberCirclesError } = await supabase
-      .from("circles")
-      .select(`
-        id, name, description, contribution_amount,
-        cycle_length_months, max_members, status, created_at, owner_id
-      `)
-      .in("id", memberOnlyIds);
-
-    if (memberCirclesError) {
-      return NextResponse.json({ error: memberCirclesError.message }, { status: 500 });
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    memberCircles = data ?? [];
-  }
-
-  // Get member counts for all circles
-  const allCircleIds = [
-    ...(ownedCircles?.map((c) => c.id) ?? []),
-    ...memberOnlyIds,
-  ];
-
-  let memberCounts: Record<number, number> = {};
-  if (allCircleIds.length > 0) {
-    const { data: counts } = await supabase
+    const { data: memberships, error: membershipError } = await supabase
       .from("circle_members")
-      .select("circle_id")
-      .in("circle_id", allCircleIds)
+      .select("circle_id, role, status, joined_at")
+      .eq("user_auth_id", user.id)
       .eq("status", "APPROVED");
 
-    memberCounts = (counts ?? []).reduce((acc, row) => {
-      acc[row.circle_id] = (acc[row.circle_id] ?? 0) + 1;
-      return acc;
-    }, {} as Record<number, number>);
+    if (membershipError) {
+      return NextResponse.json({ error: membershipError.message }, { status: 500 });
+    }
+
+    const circleIds = (memberships ?? []).map((m) => m.circle_id);
+
+    if (circleIds.length === 0) {
+      return NextResponse.json({ circles: [] });
+    }
+
+    const { data: circles, error: circlesError } = await supabase
+      .from("circles")
+      .select("id, name, contribution_amount, created_at, owner_auth_id")
+      .in("id", circleIds)
+      .order("created_at", { ascending: false });
+
+    if (circlesError) {
+      return NextResponse.json({ error: circlesError.message }, { status: 500 });
+    }
+
+    const merged = (circles ?? []).map((circle) => {
+      const membership = memberships?.find((m) => m.circle_id === circle.id);
+      return {
+        ...circle,
+        membership_role: membership?.role ?? null,
+        membership_status: membership?.status ?? null,
+        joined_at: membership?.joined_at ?? null,
+      };
+    });
+
+    return NextResponse.json({ circles: merged });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to fetch my circles." },
+      { status: 500 }
+    );
   }
-
-  const format = (circles: typeof ownedCircles, role: "owner" | "member") =>
-    (circles ?? []).map((c) => ({
-      ...c,
-      role,
-      member_count: memberCounts[c.id] ?? 0,
-    }));
-
-  return NextResponse.json({
-    owned: format(ownedCircles, "owner"),
-    member: format(memberCircles, "member"),
-  });
 }
