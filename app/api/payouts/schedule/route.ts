@@ -31,15 +31,7 @@ export async function POST(req: NextRequest) {
 
     const {
       data: { user },
-      error: authError,
     } = await supabase.auth.getUser();
-
-    if (authError) {
-      return NextResponse.json(
-        { error: `auth error: ${authError.message}` },
-        { status: 500 }
-      );
-    }
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -54,18 +46,11 @@ export async function POST(req: NextRequest) {
 
     const { data: circle, error: circleError } = await admin
       .from("circles")
-      .select("id, owner_auth_id, name")
+      .select("id, owner_auth_id, fairness_mode")
       .eq("id", circleId)
       .single();
 
-    if (circleError) {
-      return NextResponse.json(
-        { error: `circle query failed: ${circleError.message}` },
-        { status: 500 }
-      );
-    }
-
-    if (!circle) {
+    if (circleError || !circle) {
       return NextResponse.json({ error: "Circle not found" }, { status: 404 });
     }
 
@@ -83,10 +68,7 @@ export async function POST(req: NextRequest) {
       .limit(1);
 
     if (existingError) {
-      return NextResponse.json(
-        { error: `existing schedule check failed: ${existingError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: existingError.message }, { status: 500 });
     }
 
     if (existingSchedule && existingSchedule.length > 0) {
@@ -104,10 +86,7 @@ export async function POST(req: NextRequest) {
       .order("joined_at", { ascending: true });
 
     if (membersError) {
-      return NextResponse.json(
-        { error: `members query failed: ${membersError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: membersError.message }, { status: 500 });
     }
 
     if (!approvedMembers || approvedMembers.length < 2) {
@@ -117,9 +96,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const randomized = shuffle(approvedMembers.map((m) => m.user_auth_id));
+    const fairnessMode = circle.fairness_mode || "RANDOM_FIXED";
 
-    const rows = randomized.map((recipientUserId, index) => ({
+    let orderedMembers = approvedMembers.map((m) => m.user_auth_id);
+
+    if (fairnessMode === "RANDOM_FIXED") {
+      orderedMembers = shuffle(orderedMembers);
+    } else if (fairnessMode === "JOIN_ORDER") {
+      orderedMembers = approvedMembers.map((m) => m.user_auth_id);
+    }
+
+    const rows = orderedMembers.map((recipientUserId, index) => ({
       circle_id: circleId,
       cycle_no: index + 1,
       recipient_user_id: recipientUserId,
@@ -127,10 +114,9 @@ export async function POST(req: NextRequest) {
       status: "PENDING",
     }));
 
-    const { data: insertedRows, error: insertError } = await admin
+    const { error: insertError } = await admin
       .from("payout_schedule")
-      .insert(rows)
-      .select();
+      .insert(rows);
 
     if (insertError) {
       return NextResponse.json(
@@ -139,28 +125,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error: auditError } = await admin.from("audit_logs").insert({
-      actor_user_id: user.id,
-      action_type: "PAYOUT_SCHEDULE_CREATED",
-      circle_id: circleId,
-      metadata: {
-        method: "initial_random_then_fixed_rotation",
-        memberCount: approvedMembers.length,
-      },
-    });
-
     return NextResponse.json({
       message: "Payout schedule generated successfully",
-      cycles: insertedRows?.length ?? rows.length,
-      auditWarning: auditError ? auditError.message : null,
+      fairness_mode: fairnessMode,
+      cycles: rows.length,
     });
   } catch (error: any) {
-    console.error("POST /api/payouts/schedule fatal error:", error);
+    console.error("POST /api/payouts/schedule error:", error);
     return NextResponse.json(
-      {
-        error: error?.message || "Server error",
-        stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
-      },
+      { error: error?.message || "Server error" },
       { status: 500 }
     );
   }
