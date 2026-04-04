@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 type CircleRow = {
   id: number;
@@ -11,7 +10,8 @@ type CircleRow = {
   contribution_amount: number;
   created_at: string;
   owner_auth_id: string;
-  fairness_mode: "JOIN_ORDER" | "RANDOM_FIXED";
+  fairness_mode?: "JOIN_ORDER" | "RANDOM_FIXED";
+  isOwner?: boolean;
 };
 
 type MemberRow = {
@@ -67,8 +67,35 @@ type CircleDetailsResponse = {
   error?: string;
 };
 
+type JwtPayload = {
+  userId: string;
+  authUserId?: string;
+  email?: string;
+  role?: string;
+  exp?: number;
+};
+
 function cls(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function parseJwt(token: string): JwtPayload | null {
+  try {
+    const base64Url = token.split(".")[1];
+    if (!base64Url) return null;
+
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
+        .join("")
+    );
+
+    return JSON.parse(json) as JwtPayload;
+  } catch {
+    return null;
+  }
 }
 
 function Badge({
@@ -129,16 +156,13 @@ function toReadableError(message: string) {
   if (message.includes("No eligible payers")) {
     return "No eligible payers were found for this cycle.";
   }
-  if (message.includes("Cycle was created, but payment rows failed")) {
-    return message;
-  }
   return message;
 }
 
 export default function CircleDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
+
   const id = useMemo(() => {
     const raw = params?.id;
     if (!raw) return null;
@@ -147,6 +171,7 @@ export default function CircleDetailPage() {
   }, [params]);
 
   const [userId, setUserId] = useState("");
+  const [token, setToken] = useState("");
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [loadingData, setLoadingData] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -163,28 +188,39 @@ export default function CircleDetailPage() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+    const storedToken = localStorage.getItem("token");
+    const payload = storedToken ? parseJwt(storedToken) : null;
 
-        if (!session) {
-          router.replace("/auth/login");
-          return;
-        }
+    console.log("CIRCLE_PAGE_TOKEN_EXISTS:", !!storedToken);
+    console.log("CIRCLE_PAGE_PAYLOAD:", payload);
 
-        setUserId(session.user.id);
-      } finally {
-        setLoadingAuth(false);
-      }
-    };
+    if (!storedToken || !payload?.userId) {
+      router.replace("/auth/login");
+      return;
+    }
 
-    init();
-  }, [router, supabase]);
+    if (payload.exp && Date.now() >= payload.exp * 1000) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      router.replace("/auth/login");
+      return;
+    }
+
+    setToken(storedToken);
+    setUserId(payload.userId);
+    setLoadingAuth(false);
+  }, [router]);
+
+  const authHeaders = useMemo(
+    () => ({
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }),
+    [token]
+  );
 
   const reload = async () => {
-    if (id === null || !Number.isFinite(id)) return;
+    if (id === null || !Number.isFinite(id) || !token) return;
 
     setErr("");
     setMsg("");
@@ -193,10 +229,13 @@ export default function CircleDetailPage() {
     try {
       const res = await fetch(`/api/circles/${id}`, {
         method: "GET",
-        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
-      const data: CircleDetailsResponse = await res.json();
+      const data: CircleDetailsResponse = await res.json().catch(() => ({} as CircleDetailsResponse));
+
+      console.log("CIRCLE_PAGE_API_STATUS:", res.status);
+      console.log("CIRCLE_PAGE_API_DATA:", data);
 
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load circle");
@@ -220,31 +259,32 @@ export default function CircleDetailPage() {
   };
 
   useEffect(() => {
-    if (!loadingAuth && userId && id !== null && Number.isFinite(id)) {
+    if (!loadingAuth && userId && id !== null && Number.isFinite(id) && token) {
       reload();
     }
-  }, [loadingAuth, userId, id]);
+  }, [loadingAuth, userId, id, token]);
 
   const approvedMembers = members.filter((m) => m.status === "APPROVED");
   const memberCount = approvedMembers.length;
-  const isOwner = !!circle && circle.owner_auth_id === userId;
+  const isOwner = !!circle && (circle.isOwner || circle.owner_auth_id === userId);
 
-  const activeCycle = useMemo(() => {
-    return cycles.find((c) => c.status === "OPEN" || c.status === "READY") || null;
-  }, [cycles]);
+  const activeCycle = useMemo(
+    () => cycles.find((c) => c.status === "OPEN" || c.status === "READY") || null,
+    [cycles]
+  );
 
   const activeCyclePayments = useMemo(() => {
     if (!activeCycle) return [];
     return cyclePayments.filter((p) => p.cycle_id === activeCycle.id);
   }, [activeCycle, cyclePayments]);
 
-  const currentSchedule = useMemo(() => {
-    return (
+  const currentSchedule = useMemo(
+    () =>
       schedule.find((row) => row.status !== "PAID") ||
       schedule[schedule.length - 1] ||
-      null
-    );
-  }, [schedule]);
+      null,
+    [schedule]
+  );
 
   const contributionCount = activeCyclePayments.filter(
     (p) => p.payment_status === "SUBMITTED" || p.payment_status === "CONFIRMED"
@@ -263,7 +303,7 @@ export default function CircleDetailPage() {
   const canCompleteCycle = isOwner && !!activeCycle && activeCycle.status === "READY";
 
   const onGenerateSchedule = async () => {
-    if (id === null) return;
+    if (id === null || !token) return;
 
     try {
       setBusy(true);
@@ -272,16 +312,13 @@ export default function CircleDetailPage() {
 
       const res = await fetch(`/api/payouts/schedule`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: authHeaders,
         body: JSON.stringify({ circle_id: id }),
       });
 
       const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to generate payout schedule");
-      }
+      if (!res.ok) throw new Error(data?.error || "Failed to generate payout schedule");
 
       setMsg(data?.message || "Payout schedule generated.");
       await reload();
@@ -293,7 +330,7 @@ export default function CircleDetailPage() {
   };
 
   const onOpenCycle = async () => {
-    if (id === null) return;
+    if (id === null || !token) return;
 
     try {
       setBusy(true);
@@ -302,20 +339,16 @@ export default function CircleDetailPage() {
 
       const res = await fetch("/api/cycles/open", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: authHeaders,
         body: JSON.stringify({ circle_id: id }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const readableError =
-          data?.error ||
-          data?.message ||
-          `Failed to open monthly cycle (HTTP ${res.status}).`;
-        throw new Error(readableError);
+        throw new Error(
+          data?.error || data?.message || `Failed to open monthly cycle (HTTP ${res.status}).`
+        );
       }
 
       setMsg(data?.message || "Monthly cycle opened successfully.");
@@ -328,7 +361,7 @@ export default function CircleDetailPage() {
   };
 
   const onSubmitPayment = async () => {
-    if (!activeCycle) return;
+    if (!activeCycle || !token) return;
 
     try {
       setBusy(true);
@@ -337,8 +370,7 @@ export default function CircleDetailPage() {
 
       const res = await fetch(`/api/cycles/${activeCycle.id}/pay`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: authHeaders,
         body: JSON.stringify({
           payment_method: paymentMethod,
           transfer_reference: transferReference,
@@ -347,9 +379,7 @@ export default function CircleDetailPage() {
 
       const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to submit payment");
-      }
+      if (!res.ok) throw new Error(data?.error || "Failed to submit payment");
 
       setMsg(data?.message || "Payment submitted successfully.");
       setTransferReference("");
@@ -362,7 +392,7 @@ export default function CircleDetailPage() {
   };
 
   const onCompleteCycle = async () => {
-    if (!activeCycle) return;
+    if (!activeCycle || !token) return;
 
     try {
       setBusy(true);
@@ -371,14 +401,12 @@ export default function CircleDetailPage() {
 
       const res = await fetch(`/api/cycles/${activeCycle.id}/complete`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
       });
 
       const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to complete cycle");
-      }
+      if (!res.ok) throw new Error(data?.error || "Failed to complete cycle");
 
       setMsg(data?.message || "Cycle completed successfully.");
       await reload();
@@ -425,15 +453,21 @@ export default function CircleDetailPage() {
       <div className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <Link href="/dashboard" className="text-sm font-medium text-emerald-700 hover:text-emerald-600">
-              ← Back to Dashboard
+            <Link
+              href="/dashboard/circles"
+              className="text-sm font-medium text-emerald-700 hover:text-emerald-600"
+            >
+              ← Back to Circles
             </Link>
             <h1 className="mt-2 text-3xl font-extrabold tracking-tight">{circle.name}</h1>
             <p className="mt-1 text-sm text-slate-500">
               ${circle.contribution_amount}/month · Circle #{circle.id}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Fairness Mode: {circle.fairness_mode === "RANDOM_FIXED" ? "Randomized Fixed Rotation" : "Join Order"}
+              Fairness Mode:{" "}
+              {circle.fairness_mode === "RANDOM_FIXED"
+                ? "Randomized Fixed Rotation"
+                : "Join Order"}
             </p>
           </div>
 
@@ -492,7 +526,9 @@ export default function CircleDetailPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-bold">Payout Schedule</h2>
-                  <p className="mt-1 text-sm text-slate-500">Transparent order with cycle status tracking</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Transparent order with cycle status tracking
+                  </p>
                 </div>
 
                 <div className="flex gap-2">
@@ -546,8 +582,21 @@ export default function CircleDetailPage() {
             </section>
 
             <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-lg font-bold">Members</h2>
-              <p className="mt-1 text-sm text-slate-500">Approved and pending members in this circle</p>
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold">Members</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Approved and pending members in this circle
+                  </p>
+                </div>
+
+                <Link
+                  href={`/dashboard/circles/${circle.id}/requests`}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Manage Requests
+                </Link>
+              </div>
 
               <div className="mt-4 space-y-3">
                 {members.map((m) => (
@@ -669,12 +718,6 @@ export default function CircleDetailPage() {
                 {activeCycle?.status === "READY" ? (
                   <p className="text-xs text-blue-600">
                     All payments submitted. Owner can now complete the cycle.
-                  </p>
-                ) : null}
-
-                {activeCycle?.status === "COMPLETED" ? (
-                  <p className="text-xs text-emerald-600">
-                    This monthly cycle has been completed.
                   </p>
                 ) : null}
               </div>

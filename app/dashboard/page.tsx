@@ -544,8 +544,8 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
-                    <Link
-  href={`/circles/${c.id}`}
+                   <Link
+  href={`/dashboard/circles/${c.id}`}
   className="shrink-0 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500"
 >
   Open →

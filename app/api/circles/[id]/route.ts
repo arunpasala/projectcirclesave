@@ -1,16 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import jwt, { JwtPayload } from "jsonwebtoken";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+type AppJwtPayload = JwtPayload & {
+  userId: string;
+  authUserId?: string;
+  email?: string;
+  role?: string;
+};
+
+function requireAuth(req: Request): AppJwtPayload {
+  const auth = req.headers.get("authorization");
+
+  if (!auth || !auth.startsWith("Bearer ")) {
+    throw new Error("Unauthorized");
+  }
+
+  const token = auth.split(" ")[1];
+
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET missing");
+  }
+
+  return jwt.verify(token, process.env.JWT_SECRET) as AppJwtPayload;
+}
+
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const decoded = requireAuth(req);
+    const currentAuthUserId = decoded.authUserId || decoded.userId;
+
     const { id } = await context.params;
     const circleId = Number(id);
 
@@ -18,15 +45,20 @@ export async function GET(
       return NextResponse.json({ error: "Invalid circle id" }, { status: 400 });
     }
 
-    const { data: circle, error: circleError } = await supabase
+    const { data: circleRaw, error: circleError } = await supabase
       .from("circles")
       .select("*")
       .eq("id", circleId)
       .single();
 
-    if (circleError || !circle) {
+    if (circleError || !circleRaw) {
       return NextResponse.json({ error: "Circle not found" }, { status: 404 });
     }
+
+    const circle = {
+      ...circleRaw,
+      isOwner: circleRaw.owner_auth_id === currentAuthUserId,
+    };
 
     const { data: membersRaw, error: membersError } = await supabase
       .from("circle_members")
@@ -69,7 +101,10 @@ export async function GET(
       .order("cycle_no", { ascending: true });
 
     if (contributionsError) {
-      return NextResponse.json({ error: contributionsError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: contributionsError.message },
+        { status: 500 }
+      );
     }
 
     const { data: payoutRaw, error: payoutError } = await supabase
@@ -124,7 +159,10 @@ export async function GET(
       .order("id", { ascending: false });
 
     if (cyclePaymentsError) {
-      return NextResponse.json({ error: cyclePaymentsError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: cyclePaymentsError.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -137,6 +175,9 @@ export async function GET(
     });
   } catch (error: any) {
     console.error("GET /api/circles/[id] error:", error);
-    return NextResponse.json({ error: error.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Server error" },
+      { status: error.message === "Unauthorized" ? 401 : 500 }
+    );
   }
 }
