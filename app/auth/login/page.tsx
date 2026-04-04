@@ -3,11 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -16,23 +14,18 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
 
-  // ── Redirect if already logged in ────────────────────────────────────────
   useEffect(() => {
-    const check = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-      if (session) {
-        router.replace("/dashboard");
-        return;
-      }
-      setChecking(false);
-    };
-    check();
-  }, []);
+    if (token) {
+      router.replace("/dashboard");
+      return;
+    }
 
-  // Don't flash the login form to already-authenticated users
+    setChecking(false);
+  }, [router]);
+
   if (checking) return null;
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -41,19 +34,39 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const res = await fetch("/api/auth/otp/request", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
       });
 
-      if (error) {
-        setError(error.message);
+      const contentType = res.headers.get("content-type") || "";
+
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        console.error("Server returned non-JSON:", text);
+        setError("Server error. Check backend logs.");
+        setLoading(false);
         return;
       }
 
-      // User is already verified — signInWithPassword creates a full session
-      router.replace("/dashboard");
-    } catch {
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to send OTP");
+        return;
+      }
+
+      router.push(
+        `/auth/otp?email=${encodeURIComponent(email.trim().toLowerCase())}`
+      );
+    } catch (err) {
+      console.error(err);
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
@@ -62,7 +75,6 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-white text-slate-900 md:grid md:grid-cols-2">
-      {/* ── LEFT — dark hero panel ─────────────────────────────────────────── */}
       <section className="relative hidden overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 md:flex md:flex-col md:justify-between md:p-12">
         <div className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full bg-emerald-500/10 blur-3xl" />
         <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-80 rounded-full bg-teal-400/10 blur-3xl" />
@@ -74,8 +86,7 @@ export default function LoginPage() {
             className="h-10 w-10 rounded-xl object-cover"
             onError={(e) => {
               e.currentTarget.style.display = "none";
-              const fb = e.currentTarget
-                .nextElementSibling as HTMLElement | null;
+              const fb = e.currentTarget.nextElementSibling as HTMLElement | null;
               if (fb) fb.style.display = "grid";
             }}
           />
@@ -88,22 +99,24 @@ export default function LoginPage() {
         <div className="relative">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            OTP-secured login
+            Password + OTP login
           </div>
+
           <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white">
             Secure Savings{" "}
             <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
               Platform.
             </span>
           </h1>
+
           <p className="mt-4 max-w-sm text-base leading-relaxed text-slate-400">
-            Every login requires an OTP verification sent to your email —
-            keeping your circle and funds protected.
+            Log in with your password first, then verify with a one-time password sent to your email.
           </p>
+
           <div className="mt-8 grid grid-cols-2 gap-3">
             {[
-              ["Invite-only circles", "Admin controls membership"],
-              ["No custody", "We never hold funds"],
+              ["Password check", "Only valid users receive OTP"],
+              ["OTP verification", "Extra protection for accounts"],
             ].map(([title, desc]) => (
               <div
                 key={title}
@@ -121,9 +134,7 @@ export default function LoginPage() {
         </p>
       </section>
 
-      {/* ── RIGHT — form panel ────────────────────────────────────────────────── */}
       <section className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-6 py-12">
-        {/* Mobile brand */}
         <div className="mb-8 flex items-center gap-3 md:hidden">
           <Link href="/" className="flex items-center gap-3">
             <img
@@ -132,8 +143,7 @@ export default function LoginPage() {
               className="h-9 w-9 rounded-xl object-cover"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
-                const fb = e.currentTarget
-                  .nextElementSibling as HTMLElement | null;
+                const fb = e.currentTarget.nextElementSibling as HTMLElement | null;
                 if (fb) fb.style.display = "grid";
               }}
             />
@@ -150,7 +160,7 @@ export default function LoginPage() {
               Welcome back
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Enter your credentials. OTP verification comes next.
+              Enter your email and password. OTP verification comes next.
             </p>
 
             <form onSubmit={onSubmit} className="mt-7 space-y-5">
@@ -169,17 +179,9 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Password
-                  </label>
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs font-medium text-emerald-600 hover:underline"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Password
+                </label>
                 <input
                   className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                   value={password}
@@ -210,7 +212,7 @@ export default function LoginPage() {
                 disabled={loading}
                 className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-60"
               >
-                {loading ? "Logging in..." : "Log in →"}
+                {loading ? "Checking..." : "Continue →"}
               </button>
 
               <div className="relative flex items-center gap-3">
@@ -227,8 +229,9 @@ export default function LoginPage() {
               </Link>
             </form>
           </div>
+
           <p className="mt-6 text-center text-xs text-slate-400">
-            © {new Date().getFullYear()} CircleSave · OTP-secured platform
+            © {new Date().getFullYear()} CircleSave · Password + OTP secured
           </p>
         </div>
       </section>

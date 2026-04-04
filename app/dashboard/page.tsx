@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useEffect, useState } from "react";
 import {
   fetchMyCircles,
   fetchAllCircles,
@@ -51,6 +50,14 @@ type NotificationRow = {
   created_at: string;
   type?: string | null;
   meta?: Record<string, unknown> | null;
+};
+
+type JwtPayload = {
+  userId: string;
+  authUserId?: string;
+  email: string;
+  role?: string;
+  exp?: number;
 };
 
 function cls(...xs: Array<string | false | null | undefined>) {
@@ -128,9 +135,27 @@ function Section({
   );
 }
 
+function parseJwt(token: string): JwtPayload | null {
+  try {
+    const base64Url = token.split(".")[1];
+    if (!base64Url) return null;
+
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
+        .join("")
+    );
+
+    return JSON.parse(json) as JwtPayload;
+  } catch {
+    return null;
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
 
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
@@ -161,30 +186,56 @@ export default function DashboardPage() {
   const [openAdmin, setOpenAdmin] = useState(true);
 
   useEffect(() => {
-    const init = async () => {
+    const init = () => {
       try {
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
+        const token = localStorage.getItem("token");
 
-        if (error || !session) {
+        if (!token) {
           router.replace("/auth/login");
           return;
         }
 
-        setUserId(session.user.id);
-        setUserEmail(session.user.email || "");
-        setUserName(session.user.user_metadata?.full_name || "");
+        const payload = parseJwt(token);
+
+        if (!payload?.userId || !payload?.email) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          router.replace("/auth/login");
+          return;
+        }
+
+        if (payload.exp && Date.now() >= payload.exp * 1000) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          router.replace("/auth/login");
+          return;
+        }
+
+        const savedUser = localStorage.getItem("user");
+        let fullName = "";
+
+        if (savedUser) {
+          try {
+            const parsedUser = JSON.parse(savedUser);
+            fullName = parsedUser?.full_name || "";
+          } catch {}
+        }
+
+        setUserId(payload.userId);
+        setUserEmail(payload.email);
+        setUserName(fullName);
       } catch {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
         router.replace("/auth/login");
+        return;
       } finally {
         setAuthChecking(false);
       }
     };
 
     init();
-  }, [router, supabase]);
+  }, [router]);
 
   const reload = async (showLoader = true) => {
     setErr("");
@@ -223,10 +274,13 @@ export default function DashboardPage() {
       setErr("");
       setMsg("");
 
+      const token = localStorage.getItem("token");
+
       const res = await fetch("/api/circles/join", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
         },
         body: JSON.stringify({ circle_id: circleId }),
       });
@@ -304,7 +358,8 @@ export default function DashboardPage() {
   };
 
   const onSignOut = async () => {
-    await supabase.auth.signOut();
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     router.replace("/auth/login");
   };
 
@@ -490,11 +545,11 @@ export default function DashboardPage() {
                     </div>
 
                     <Link
-                      href={`/circles/${c.id}`}
-                      className="shrink-0 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500"
-                    >
-                      Open →
-                    </Link>
+  href={`/circles/${c.id}`}
+  className="shrink-0 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500"
+>
+  Open →
+</Link>
                   </div>
                 ))}
               </div>

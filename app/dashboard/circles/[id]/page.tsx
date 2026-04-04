@@ -44,8 +44,6 @@ type CycleRow = {
   total_members: number;
   expected_total: number;
   status: "OPEN" | "READY" | "COMPLETED";
-  opened_at?: string;
-  closed_at?: string | null;
 };
 
 type CyclePaymentRow = {
@@ -131,20 +129,8 @@ function toReadableError(message: string) {
   if (message.includes("No eligible payers")) {
     return "No eligible payers were found for this cycle.";
   }
-  if (message.includes("already exists and is completed")) {
-    return "This month already has a completed payout cycle. You cannot open another cycle until next month.";
-  }
-  if (message.includes("already exists and is currently")) {
-    return "This month already has a payout cycle in progress.";
-  }
-  if (message.includes("duplicate key value violates unique constraint")) {
-    return "A payout cycle for this month already exists for this circle.";
-  }
-  if (message.includes("Recipient cannot submit payment")) {
-    return "You are the selected recipient for this cycle and do not need to pay.";
-  }
-  if (message.includes("Payment record not found")) {
-    return "No payment record was found for your account in this cycle.";
+  if (message.includes("Cycle was created, but payment rows failed")) {
+    return message;
   }
   return message;
 }
@@ -153,7 +139,6 @@ export default function CircleDetailPage() {
   const params = useParams();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-
   const id = useMemo(() => {
     const raw = params?.id;
     if (!raw) return null;
@@ -223,7 +208,7 @@ export default function CircleDetailPage() {
       setCycles(data.cycles || []);
       setCyclePayments(data.cyclePayments || []);
     } catch (e: any) {
-      setErr(toReadableError(e?.message || "Failed to load circle."));
+      setErr(e?.message || "Failed to load circle.");
       setCircle(null);
       setMembers([]);
       setSchedule([]);
@@ -248,41 +233,22 @@ export default function CircleDetailPage() {
     return cycles.find((c) => c.status === "OPEN" || c.status === "READY") || null;
   }, [cycles]);
 
-  const latestCycle = useMemo(() => {
-    return cycles.length > 0 ? cycles[0] : null;
-  }, [cycles]);
-
-  const monthHasCycle = useMemo(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const monthKey = `${y}-${m}`;
-    return cycles.some((c) => c.month_key === monthKey);
-  }, [cycles]);
-
   const activeCyclePayments = useMemo(() => {
     if (!activeCycle) return [];
     return cyclePayments.filter((p) => p.cycle_id === activeCycle.id);
   }, [activeCycle, cyclePayments]);
 
-  const nextSchedule = useMemo(() => {
-    return schedule.find((row) => row.status !== "PAID") || null;
+  const currentSchedule = useMemo(() => {
+    return (
+      schedule.find((row) => row.status !== "PAID") ||
+      schedule[schedule.length - 1] ||
+      null
+    );
   }, [schedule]);
 
-  const currentDisplayCycleNo =
-    activeCycle?.cycle_no || nextSchedule?.cycle_no || latestCycle?.cycle_no || 1;
-
-  const currentRecipient = useMemo(() => {
-    const fromSchedule =
-      schedule.find((s) => s.cycle_no === currentDisplayCycleNo) || nextSchedule || null;
-    return fromSchedule;
-  }, [schedule, currentDisplayCycleNo, nextSchedule]);
-
-  const submittedCount = activeCyclePayments.filter(
+  const contributionCount = activeCyclePayments.filter(
     (p) => p.payment_status === "SUBMITTED" || p.payment_status === "CONFIRMED"
   ).length;
-
-  const requiredPayers = Math.max(memberCount - 1, 0);
 
   const hasSubmittedPayment = activeCyclePayments.some(
     (p) =>
@@ -291,7 +257,7 @@ export default function CircleDetailPage() {
   );
 
   const isRecipient = activeCycle?.recipient_user_id === userId;
-  const canOpenCycle = isOwner && !monthHasCycle && schedule.length > 0;
+  const canOpenCycle = isOwner && !activeCycle && schedule.length > 0;
   const canSubmitPayment =
     !!activeCycle && !isRecipient && !hasSubmittedPayment && activeCycle.status === "OPEN";
   const canCompleteCycle = isOwner && !!activeCycle && activeCycle.status === "READY";
@@ -467,10 +433,7 @@ export default function CircleDetailPage() {
               ${circle.contribution_amount}/month · Circle #{circle.id}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Fairness Mode:{" "}
-              {circle.fairness_mode === "RANDOM_FIXED"
-                ? "Randomized Fixed Rotation"
-                : "Join Order"}
+              Fairness Mode: {circle.fairness_mode === "RANDOM_FIXED" ? "Randomized Fixed Rotation" : "Join Order"}
             </p>
           </div>
 
@@ -504,27 +467,21 @@ export default function CircleDetailPage() {
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
             <p className="text-xs font-medium text-slate-500">Current Cycle</p>
             <p className="mt-1 text-2xl font-extrabold text-blue-600">
-              {currentDisplayCycleNo}
+              {activeCycle?.cycle_no || currentSchedule?.cycle_no || 1}
             </p>
           </div>
 
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
             <p className="text-xs font-medium text-slate-500">Payments</p>
             <p className="mt-1 text-2xl font-extrabold text-amber-600">
-              {submittedCount}/{requiredPayers}
+              {contributionCount}/{Math.max(memberCount - 1, 0)}
             </p>
           </div>
 
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
             <p className="text-xs font-medium text-slate-500">Cycle Status</p>
             <div className="mt-2">
-              {activeCycle ? (
-                statusBadge(activeCycle.status)
-              ) : latestCycle ? (
-                statusBadge(latestCycle.status)
-              ) : (
-                <Badge color="slate">NO CYCLE</Badge>
-              )}
+              {activeCycle ? statusBadge(activeCycle.status) : <Badge color="slate">NO CYCLE</Badge>}
             </div>
           </div>
         </div>
@@ -565,12 +522,6 @@ export default function CircleDetailPage() {
                   ) : null}
                 </div>
               </div>
-
-              {isOwner && monthHasCycle && !activeCycle ? (
-                <p className="mt-2 text-xs text-slate-500">
-                  A payout cycle already exists for this month. You can open the next one next month.
-                </p>
-              ) : null}
 
               {schedule.length === 0 ? (
                 <p className="mt-4 text-sm text-slate-500">No payout schedule yet.</p>
@@ -633,10 +584,9 @@ export default function CircleDetailPage() {
                 <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
                   <p className="text-xs font-medium text-slate-500">Cycle Recipient</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {currentRecipient?.recipient_name ||
-                      currentRecipient?.recipient_email ||
+                    {currentSchedule?.recipient_name ||
+                      currentSchedule?.recipient_email ||
                       activeCycle?.recipient_user_id ||
-                      latestCycle?.recipient_user_id ||
                       "—"}
                   </p>
                 </div>
@@ -644,14 +594,14 @@ export default function CircleDetailPage() {
                 <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
                   <p className="text-xs font-medium text-slate-500">Contribution Amount</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">
-                    ${activeCycle?.amount_per_member || latestCycle?.amount_per_member || circle.contribution_amount}
+                    ${activeCycle?.amount_per_member || circle.contribution_amount}
                   </p>
                 </div>
 
                 <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
                   <p className="text-xs font-medium text-slate-500">Payment Progress</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {submittedCount} of {requiredPayers} received
+                    {contributionCount} of {Math.max(memberCount - 1, 0)} received
                   </p>
                 </div>
 
@@ -704,7 +654,7 @@ export default function CircleDetailPage() {
                   </p>
                 ) : null}
 
-                {isRecipient && activeCycle ? (
+                {isRecipient ? (
                   <p className="text-xs text-amber-600">
                     You are the recipient for this cycle and do not need to submit payment.
                   </p>
@@ -722,9 +672,9 @@ export default function CircleDetailPage() {
                   </p>
                 ) : null}
 
-                {!activeCycle && latestCycle?.status === "COMPLETED" ? (
+                {activeCycle?.status === "COMPLETED" ? (
                   <p className="text-xs text-emerald-600">
-                    This month’s payout cycle has already been completed.
+                    This monthly cycle has been completed.
                   </p>
                 ) : null}
               </div>

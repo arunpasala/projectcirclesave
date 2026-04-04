@@ -1,26 +1,17 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import supabaseAdmin from "@/lib/supabase/admin";
+import { requireAuthUserId } from "@/lib/auth-helpers";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const authUserId = requireAuthUserId(req);
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // circles owned by current user
-    const { data: ownedCircles, error: ownedError } = await supabase
+    const { data: ownedCircles, error: ownedError } = await supabaseAdmin
       .from("circles")
       .select("id, name")
-      .eq("owner_auth_id", user.id);
+      .eq("owner_auth_id", authUserId);
 
     if (ownedError) {
       return NextResponse.json({ error: ownedError.message }, { status: 500 });
@@ -28,10 +19,9 @@ export async function GET() {
 
     const ownedCircleIds = (ownedCircles ?? []).map((c) => c.id);
 
-    // admin requests for circles I own
     let requests: any[] = [];
     if (ownedCircleIds.length > 0) {
-      const { data: requestRows, error: requestsError } = await supabase
+      const { data: requestRows, error: requestsError } = await supabaseAdmin
         .from("circle_members")
         .select(
           "id, circle_id, user_auth_id, role, status, requested_at, joined_at, decided_at"
@@ -41,7 +31,10 @@ export async function GET() {
         .order("requested_at", { ascending: false });
 
       if (requestsError) {
-        return NextResponse.json({ error: requestsError.message }, { status: 500 });
+        return NextResponse.json(
+          { error: requestsError.message },
+          { status: 500 }
+        );
       }
 
       requests = requestRows ?? [];
@@ -56,13 +49,16 @@ export async function GET() {
     }> = [];
 
     if (requesterIds.length > 0) {
-      const { data: profileRows, error: profilesError } = await supabase
+      const { data: profileRows, error: profilesError } = await supabaseAdmin
         .from("profiles")
         .select("id, email, full_name")
         .in("id", requesterIds);
 
       if (profilesError) {
-        return NextResponse.json({ error: profilesError.message }, { status: 500 });
+        return NextResponse.json(
+          { error: profilesError.message },
+          { status: 500 }
+        );
       }
 
       profiles = profileRows ?? [];
@@ -79,29 +75,35 @@ export async function GET() {
       };
     });
 
-    // my pending requests
-    const { data: pendingMine, error: pendingMineError } = await supabase
+    const { data: pendingMine, error: pendingMineError } = await supabaseAdmin
       .from("circle_members")
       .select("id, circle_id, user_auth_id, role, status, requested_at")
-      .eq("user_auth_id", user.id)
+      .eq("user_auth_id", authUserId)
       .eq("status", "PENDING")
       .order("requested_at", { ascending: false });
 
     if (pendingMineError) {
-      return NextResponse.json({ error: pendingMineError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: pendingMineError.message },
+        { status: 500 }
+      );
     }
 
     const pendingCircleIds = (pendingMine ?? []).map((p) => p.circle_id);
 
     let pendingCircles: Array<{ id: number; name: string }> = [];
     if (pendingCircleIds.length > 0) {
-      const { data: pendingCircleRows, error: pendingCirclesError } = await supabase
-        .from("circles")
-        .select("id, name")
-        .in("id", pendingCircleIds);
+      const { data: pendingCircleRows, error: pendingCirclesError } =
+        await supabaseAdmin
+          .from("circles")
+          .select("id, name")
+          .in("id", pendingCircleIds);
 
       if (pendingCirclesError) {
-        return NextResponse.json({ error: pendingCirclesError.message }, { status: 500 });
+        return NextResponse.json(
+          { error: pendingCirclesError.message },
+          { status: 500 }
+        );
       }
 
       pendingCircles = pendingCircleRows ?? [];
@@ -109,7 +111,8 @@ export async function GET() {
 
     const enrichedPendingMine = (pendingMine ?? []).map((item) => ({
       ...item,
-      circle_name: pendingCircles.find((c) => c.id === item.circle_id)?.name ?? null,
+      circle_name:
+        pendingCircles.find((c) => c.id === item.circle_id)?.name ?? null,
     }));
 
     return NextResponse.json({
@@ -119,9 +122,10 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Failed to fetch requests.",
+        error:
+          error instanceof Error ? error.message : "Failed to fetch requests.",
       },
-      { status: 500 }
+      { status: 401 }
     );
   }
 }

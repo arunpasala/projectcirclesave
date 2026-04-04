@@ -3,81 +3,95 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 
 export default function OtpPage() {
   const router = useRouter();
-  const sp = useSearchParams();
-  const email = useMemo(() => sp.get("email") || "", [sp]);
-  const supabase = createClient();
+  const searchParams = useSearchParams();
 
-  const [code, setCode] = useState("");
+  const email = useMemo(
+    () => (searchParams.get("email") || "").trim().toLowerCase(),
+    [searchParams]
+  );
+
+  const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-  const [msg, setMsg] = useState("");
-  const [cooldown, setCooldown] = useState(30);
+  const [checking, setChecking] = useState(true);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    setCooldown(30);
-    const t = setInterval(() => setCooldown((c) => (c > 0 ? c - 1 : 0)), 1000);
-    return () => clearInterval(t);
-  }, [email]);
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-  const onVerify = async (e: React.FormEvent) => {
+    if (token) {
+      router.replace("/dashboard");
+      return;
+    }
+
+    if (!email) {
+      router.replace("/auth/login");
+      return;
+    }
+
+    setChecking(false);
+  }, [email, router]);
+
+  if (checking) return null;
+
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErr("");
+    setError("");
+    setSuccess("");
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.verifyOtp({
-        email,
-        token: code,
-        type: "email", // ✅ 6-digit code flow
+      const res = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          otp: otp.trim(),
+        }),
       });
 
-      if (error) {
-        setErr(error.message);
+      const contentType = res.headers.get("content-type") || "";
+
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        console.error("Server returned non-JSON:", text);
+        setError("Server error. Check backend logs.");
+        setLoading(false);
         return;
       }
 
-      // ✅ Supabase sets HttpOnly session cookie automatically
-      router.push("/dashboard");
-    } catch {
-      setErr("Network error. Please try again.");
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to verify OTP");
+        return;
+      }
+
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      setSuccess("OTP verified successfully. Redirecting...");
+      router.replace("/dashboard");
+    } catch (err) {
+      console.error(err);
+      setError("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const onResend = async () => {
-    if (cooldown > 0 || !email) return;
-    setErr("");
-    setMsg("");
-    setLoading(true);
-
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: false }, // resend only, don't create new user
-      });
-
-      if (error) {
-        setErr(error.message);
-        return;
-      }
-
-      setMsg("OTP resent — check your inbox and spam folder.");
-      setCooldown(30);
-    } catch {
-      setErr("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+  const handleResend = () => {
+    router.replace(`/auth/login?email=${encodeURIComponent(email)}`);
   };
 
   return (
     <main className="min-h-screen bg-white text-slate-900 md:grid md:grid-cols-2">
-      {/* ── LEFT — dark hero panel ─────────────────────────────────────────── */}
       <section className="relative hidden overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 md:flex md:flex-col md:justify-between md:p-12">
         <div className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full bg-emerald-500/10 blur-3xl" />
         <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-80 rounded-full bg-teal-400/10 blur-3xl" />
@@ -89,8 +103,7 @@ export default function OtpPage() {
             className="h-10 w-10 rounded-xl object-cover"
             onError={(e) => {
               e.currentTarget.style.display = "none";
-              const fb = e.currentTarget
-                .nextElementSibling as HTMLElement | null;
+              const fb = e.currentTarget.nextElementSibling as HTMLElement | null;
               if (fb) fb.style.display = "grid";
             }}
           />
@@ -103,36 +116,27 @@ export default function OtpPage() {
         <div className="relative">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Two-factor security
+            Email verification
           </div>
+
           <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white">
-            One last step.{" "}
+            Verify your{" "}
             <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-              You're almost in.
+              login.
             </span>
           </h1>
+
           <p className="mt-4 max-w-sm text-base leading-relaxed text-slate-400">
-            We sent a 6-digit code to your email. This confirms it's really you
-            — keeping your circle safe.
+            We sent a one-time password to your email. Enter it below to continue securely.
           </p>
-          <div className="mt-8 space-y-3">
-            {[
-              ["Check your inbox", "Look for an email from CircleSave"],
-              ["Check spam too", "Gmail sometimes delays OTP emails"],
-              ["Code expires soon", "Request a new one if it doesn't arrive"],
-            ].map(([title, desc]) => (
-              <div key={title} className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs text-emerald-400">
-                  ✓
-                </span>
-                <div>
-                  <span className="text-sm font-semibold text-white">
-                    {title}
-                  </span>
-                  <span className="ml-2 text-sm text-slate-400">{desc}</span>
-                </div>
-              </div>
-            ))}
+
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
+            <p className="text-xs uppercase tracking-wide text-slate-400">
+              Sent to
+            </p>
+            <p className="mt-1 break-all text-sm font-semibold text-white">
+              {email}
+            </p>
           </div>
         </div>
 
@@ -141,9 +145,7 @@ export default function OtpPage() {
         </p>
       </section>
 
-      {/* ── RIGHT — form panel ────────────────────────────────────────────────── */}
       <section className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-6 py-12">
-        {/* Mobile brand */}
         <div className="mb-8 flex items-center gap-3 md:hidden">
           <Link href="/" className="flex items-center gap-3">
             <img
@@ -152,8 +154,7 @@ export default function OtpPage() {
               className="h-9 w-9 rounded-xl object-cover"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
-                const fb = e.currentTarget
-                  .nextElementSibling as HTMLElement | null;
+                const fb = e.currentTarget.nextElementSibling as HTMLElement | null;
                 if (fb) fb.style.display = "grid";
               }}
             />
@@ -166,61 +167,40 @@ export default function OtpPage() {
 
         <div className="w-full max-w-md">
           <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
-              <span className="text-2xl">✉️</span>
-            </div>
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
-              Check your email
+              Enter OTP
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              We sent a 6-digit code to{" "}
-              <span className="font-semibold text-slate-700">{email}</span>
+              Enter the 6-digit code sent to <span className="font-medium">{email}</span>
             </p>
 
-            {/* ── Wrong email notice ───────────────────────────────────────── */}
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5">
-              <p className="text-xs text-slate-500">
-                Email sent to{" "}
-                <span className="font-semibold text-slate-700">{email}</span>.
-                Not receiving the code?
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                This usually means the email address doesn't exist or isn't
-                reachable.{" "}
-                <button
-                  type="button"
-                  onClick={() => router.push("/auth/signup")}
-                  className="font-semibold text-emerald-600 hover:underline"
-                >
-                  Go back and try a different email →
-                </button>
-              </p>
-            </div>
-
-            <form onSubmit={onVerify} className="mt-4 space-y-4">
+            <form onSubmit={handleVerify} className="mt-7 space-y-5">
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  6-digit OTP code
+                  One-time password
                 </label>
                 <input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="000000"
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-lg tracking-[0.35em] outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                  value={otp}
+                  onChange={(e) =>
+                    setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  placeholder="123456"
                   inputMode="numeric"
                   maxLength={6}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-center text-2xl font-bold tracking-[0.5em] outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                   required
                 />
               </div>
 
-              {err && (
+              {error && (
                 <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                  {err}
+                  {error}
                 </div>
               )}
-              {msg && (
+
+              {success && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                  {msg}
+                  {success}
                 </div>
               )}
 
@@ -229,39 +209,28 @@ export default function OtpPage() {
                 disabled={loading}
                 className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-60"
               >
-                {loading ? "Verifying..." : "Verify & log in →"}
+                {loading ? "Verifying..." : "Verify OTP →"}
               </button>
 
               <button
                 type="button"
-                onClick={onResend}
-                disabled={loading || cooldown > 0}
-                className="w-full rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                onClick={handleResend}
+                className="w-full rounded-2xl border border-emerald-200 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
               >
-                {cooldown > 0 ? (
-                  <span>
-                    Resend code in{" "}
-                    <span className="font-bold text-emerald-600">
-                      {cooldown}s
-                    </span>
-                  </span>
-                ) : (
-                  "Resend OTP"
-                )}
+                Back to login for new OTP
               </button>
+
+              <Link
+                href="/auth/login"
+                className="block text-center text-sm font-medium text-slate-500 hover:text-slate-700"
+              >
+                Back to login
+              </Link>
             </form>
           </div>
 
-          <button
-            type="button"
-            onClick={() => router.push("/auth/login")}
-            className="mt-4 flex w-full items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-700"
-          >
-            ← Back to login
-          </button>
-
-          <p className="mt-4 text-center text-xs text-slate-400">
-            © {new Date().getFullYear()} CircleSave · OTP-secured platform
+          <p className="mt-6 text-center text-xs text-slate-400">
+            © {new Date().getFullYear()} CircleSave · Secure access with OTP
           </p>
         </div>
       </section>

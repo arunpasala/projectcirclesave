@@ -1,29 +1,24 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import supabaseAdmin from "@/lib/supabase/admin";
+import { requireAuthUserId } from "@/lib/auth-helpers";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const authUserId = requireAuthUserId(req);
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: memberships, error: membershipError } = await supabase
+    const { data: memberships, error: membershipError } = await supabaseAdmin
       .from("circle_members")
       .select("circle_id, role, status, joined_at")
-      .eq("user_auth_id", user.id)
+      .eq("user_auth_id", authUserId)
       .eq("status", "APPROVED");
 
     if (membershipError) {
-      return NextResponse.json({ error: membershipError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: membershipError.message },
+        { status: 500 }
+      );
     }
 
     const circleIds = (memberships ?? []).map((m) => m.circle_id);
@@ -32,7 +27,7 @@ export async function GET() {
       return NextResponse.json({ circles: [] });
     }
 
-    const { data: circles, error: circlesError } = await supabase
+    const { data: circles, error: circlesError } = await supabaseAdmin
       .from("circles")
       .select("id, name, contribution_amount, created_at, owner_auth_id")
       .in("id", circleIds)
@@ -55,8 +50,13 @@ export async function GET() {
     return NextResponse.json({ circles: merged });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch my circles." },
-      { status: 500 }
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to fetch my circles.",
+      },
+      { status: 401 }
     );
   }
 }

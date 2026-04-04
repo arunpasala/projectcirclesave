@@ -42,11 +42,30 @@ export type CircleRequest = {
   } | null;
 };
 
+function getAuthHeaders(extra?: HeadersInit): HeadersInit {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  return {
+    ...(extra || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 async function handleJson<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(text || "Server returned a non-JSON response");
+  }
+
   const data = await res.json();
+
   if (!res.ok) {
     throw new Error(data?.error || "Request failed");
   }
+
   return data;
 }
 
@@ -54,7 +73,9 @@ export async function fetchAllCircles(): Promise<{ circles: Circle[] }> {
   const res = await fetch("/api/circles/all", {
     method: "GET",
     cache: "no-store",
+    headers: getAuthHeaders(),
   });
+
   return handleJson(res);
 }
 
@@ -62,7 +83,9 @@ export async function fetchMyCircles(): Promise<{ circles: Circle[] }> {
   const res = await fetch("/api/circles/my", {
     method: "GET",
     cache: "no-store",
+    headers: getAuthHeaders(),
   });
+
   return handleJson(res);
 }
 
@@ -73,7 +96,9 @@ export async function fetchCircleRequests(): Promise<{
   const res = await fetch("/api/circles/requests", {
     method: "GET",
     cache: "no-store",
+    headers: getAuthHeaders(),
   });
+
   return handleJson(res);
 }
 
@@ -81,7 +106,9 @@ export async function fetchCircleById(id: number): Promise<{ circle: Circle }> {
   const res = await fetch(`/api/circles/${id}`, {
     method: "GET",
     cache: "no-store",
+    headers: getAuthHeaders(),
   });
+
   return handleJson(res);
 }
 
@@ -91,7 +118,9 @@ export async function fetchCircleMembers(
   const res = await fetch(`/api/circles/${id}/members`, {
     method: "GET",
     cache: "no-store",
+    headers: getAuthHeaders(),
   });
+
   return handleJson(res);
 }
 
@@ -101,9 +130,12 @@ export async function createCircle(payload: {
 }): Promise<{ circle: Circle }> {
   const res = await fetch("/api/circles/create", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify(payload),
   });
+
   return handleJson(res);
 }
 
@@ -114,9 +146,12 @@ export async function joinCircle(circle_id: number): Promise<{
 }> {
   const res = await fetch("/api/circles/join", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify({ circle_id }),
   });
+
   return handleJson(res);
 }
 
@@ -127,9 +162,12 @@ export async function decideMember(
 ): Promise<{ success: boolean; message: string }> {
   const res = await fetch(`/api/circles/${circleId}/decide`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify({ memberUserId, action }),
   });
+
   return handleJson(res);
 }
 
@@ -138,6 +176,8 @@ export async function deleteCircle(
 ): Promise<{ success: boolean }> {
   const res = await fetch(`/api/circles/${circleId}`, {
     method: "DELETE",
+    headers: getAuthHeaders(),
   });
+
   return handleJson(res);
 }
