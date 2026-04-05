@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 type Circle = {
   id: number;
@@ -16,8 +15,35 @@ type Circle = {
   joined_at?: string | null;
 };
 
+type JwtPayload = {
+  userId: string;
+  authUserId?: string;
+  email?: string;
+  role?: string;
+  exp?: number;
+};
+
 function cls(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function parseJwt(token: string): JwtPayload | null {
+  try {
+    const base64Url = token.split(".")[1];
+    if (!base64Url) return null;
+
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
+        .join("")
+    );
+
+    return JSON.parse(json) as JwtPayload;
+  } catch {
+    return null;
+  }
 }
 
 function Badge({
@@ -47,7 +73,6 @@ function Badge({
 
 export default function DashboardCirclesPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [circles, setCircles] = useState<Circle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,18 +81,34 @@ export default function DashboardCirclesPage() {
   useEffect(() => {
     const init = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const token = localStorage.getItem("token");
 
-        if (!session) {
+        if (!token) {
+          router.replace("/auth/login");
+          return;
+        }
+
+        const payload = parseJwt(token);
+
+        if (!payload?.userId) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          router.replace("/auth/login");
+          return;
+        }
+
+        if (payload.exp && Date.now() >= payload.exp * 1000) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
           router.replace("/auth/login");
           return;
         }
 
         const res = await fetch("/api/circles/my", {
           method: "GET",
-          credentials: "include",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         });
 
         const data = await res.json().catch(() => ({}));
@@ -85,7 +126,7 @@ export default function DashboardCirclesPage() {
     };
 
     init();
-  }, [router, supabase]);
+  }, [router]);
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -110,7 +151,7 @@ export default function DashboardCirclesPage() {
             href="/dashboard/circles/new"
             className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500"
           >
-            + New Circle
+            Create New Circle
           </Link>
         </div>
 

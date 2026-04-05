@@ -424,10 +424,10 @@ export default function DashboardPage() {
             </div>
 
             <Link
-              href="/circles/create"
-              className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-500"
-            >
-              + New Circle
+                href="/dashboard/circles/new"
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-500"
+              >
+            Create New Circle
             </Link>
 
             <button
