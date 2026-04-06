@@ -190,15 +190,25 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   required
                 />
-                <label className="mt-2.5 flex items-center gap-2 text-xs text-slate-500">
-                  <input
-                    type="checkbox"
-                    checked={showPassword}
-                    onChange={(e) => setShowPassword(e.target.checked)}
-                    className="accent-emerald-600"
-                  />
-                  Show password
-                </label>
+
+                <div className="mt-2 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={showPassword}
+                      onChange={(e) => setShowPassword(e.target.checked)}
+                      className="accent-emerald-600"
+                    />
+                    Show password
+                  </label>
+
+                  <Link
+                    href="/auth/forgot-password"
+                    className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
 
               {error && (

@@ -185,7 +185,7 @@ export default function OtpPage() {
                   onChange={(e) =>
                     setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))
                   }
-                  placeholder="123456"
+                  placeholder="******"
                   inputMode="numeric"
                   maxLength={6}
                   required

@@ -66,7 +66,7 @@ export default function HomePage() {
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-400">
             CircleSave makes group savings transparent and secure. Create a
             circle, invite members, track every contribution, and receive
-            payouts — all verified by OTP.
+            payouts - all verified by OTP.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center gap-4">
@@ -124,14 +124,14 @@ export default function HomePage() {
               {
                 step: "2",
                 title: "Invite & approve members",
-                desc: "Members request to join. You approve or reject. Everyone gets notified at each step — no surprises.",
+                desc: "Members request to join. You approve or reject. Everyone gets notified at each step - no surprises.",
                 accent: "bg-teal-50 text-teal-600",
                 bar: "from-teal-400 to-emerald-400",
               },
               {
                 step: "3",
                 title: "Track & receive payouts",
-                desc: "Your dashboard shows every circle, all contributions, and payout history — fully transparent for every member.",
+                desc: "Your dashboard shows every circle, all contributions, and payout history - fully transparent for every member.",
                 accent: "bg-slate-100 text-slate-700",
                 bar: "from-slate-400 to-slate-600",
               },
@@ -172,7 +172,7 @@ export default function HomePage() {
               </h2>
               <p className="mt-4 text-base leading-relaxed text-slate-500">
                 Traditional rotating savings groups run on goodwill. CircleSave
-                adds a verifiable layer — every action is logged, every member
+                adds a verifiable layer - every action is logged, every member
                 can see the history, and every login requires OTP confirmation.
               </p>
               <ul className="mt-8 space-y-4">
