@@ -1,18 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import jwt from "jsonwebtoken";
+import supabaseAdmin from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
+type TokenPayload = {
+  userId: number;
+  authUserId: string | null;
+  email: string;
+  role: "ADMIN" | "USER";
+};
+
+function getUserFromRequest(req: NextRequest): TokenPayload {
+  const authHeader = req.headers.get("authorization");
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    throw new Error("Unauthorized");
+  }
+
+  const token = authHeader.replace("Bearer ", "").trim();
+
+  return jwt.verify(token, process.env.JWT_SECRET!) as TokenPayload;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const user = getUserFromRequest(req);
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!user?.authUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -26,7 +41,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: circle, error: circleError } = await supabase
+    const { data: circle, error: circleError } = await supabaseAdmin
       .from("circles")
       .select("id, name, owner_auth_id")
       .eq("id", circleId)
@@ -40,18 +55,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Circle not found." }, { status: 404 });
     }
 
-    if (circle.owner_auth_id === user.id) {
+    if (circle.owner_auth_id === user.authUserId) {
       return NextResponse.json(
         { error: "You already own this circle." },
         { status: 409 }
       );
     }
 
-    const { data: existing, error: existingError } = await supabase
+    const { data: existing, error: existingError } = await supabaseAdmin
       .from("circle_members")
       .select("id, status")
       .eq("circle_id", circleId)
-      .eq("user_auth_id", user.id)
+      .eq("user_auth_id", user.authUserId)
       .maybeSingle();
 
     if (existingError) {
@@ -77,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (existing) {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await supabaseAdmin
         .from("circle_members")
         .update({
           status: "PENDING",
@@ -92,11 +107,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: updateError.message }, { status: 500 });
       }
     } else {
-      const { error: insertError } = await supabase
+      const { error: insertError } = await supabaseAdmin
         .from("circle_members")
         .insert({
           circle_id: circleId,
-          user_auth_id: user.id,
+          user_auth_id: user.authUserId,
           role: "MEMBER",
           status: "PENDING",
           requested_at: new Date().toISOString(),
@@ -107,13 +122,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("full_name, email")
-      .eq("id", user.id)
+      .eq("id", user.authUserId)
       .maybeSingle();
 
-    await supabase.from("notifications").insert({
+    await supabaseAdmin.from("notifications").insert({
       user_auth_id: circle.owner_auth_id,
       title: "New join request",
       message: `${
@@ -122,7 +137,19 @@ export async function POST(req: NextRequest) {
       type: "JOIN_REQUEST",
       meta: {
         circle_id: circle.id,
-        requester_user_id: user.id,
+        requester_user_id: user.authUserId,
+      },
+    });
+
+    await supabaseAdmin.from("audit_logs").insert({
+      actor_user_id: user.authUserId,
+      action: "JOIN_CIRCLE_REQUEST",
+      action_type: "JOIN_CIRCLE_REQUEST",
+      status: "success",
+      circle_id: circle.id,
+      metadata: {
+        requester_user_id: user.authUserId,
+        requester_email: user.email,
       },
     });
 
@@ -135,11 +162,12 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
+    const msg =
+      error instanceof Error ? error.message : "Failed to join circle.";
+
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to join circle.",
-      },
-      { status: 500 }
+      { error: msg },
+      { status: msg === "Unauthorized" ? 401 : 500 }
     );
   }
 }
