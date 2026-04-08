@@ -1,97 +1,72 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
-import pool from "@/lib/db";
+import supabaseAdmin from "@/lib/supabase/admin";
+import { requireAuthUserId } from "@/lib/auth-helpers";
 
-type RouteContext = {
-  params: Promise<{ id: string }>;
-};
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest, context: RouteContext) {
-  const client = await pool.connect();
-
+export async function POST(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => req.cookies.getAll(),
-          setAll: () => {},
-        },
-      }
-    );
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const authUserId = requireAuthUserId(req);
     const { id } = await context.params;
     const circleId = Number(id);
-    const body = await req.json();
-    const cycleNo = Number(body?.cycleNo);
 
     if (!Number.isInteger(circleId) || circleId <= 0) {
       return NextResponse.json({ error: "Invalid circle id" }, { status: 400 });
     }
 
+    const body = await req.json().catch(() => ({}));
+    const cycleNo = Number(body?.cycleNo);
+
     if (!Number.isInteger(cycleNo) || cycleNo <= 0) {
       return NextResponse.json({ error: "Invalid cycle number" }, { status: 400 });
     }
 
-    await client.query("BEGIN");
-
     // 1) Load circle and verify owner
-    const circleRes = await client.query(
-      `
-      select id, owner_auth_id, name, contribution_amount
-      from public.circles
-      where id = $1
-      `,
-      [circleId]
-    );
+    const { data: circle, error: circleError } = await supabaseAdmin
+      .from("circles")
+      .select("id, owner_auth_id, name, contribution_amount")
+      .eq("id", circleId)
+      .maybeSingle();
 
-    if (!circleRes.rowCount) {
-      await client.query("ROLLBACK");
+    if (circleError) {
+      return NextResponse.json({ error: circleError.message }, { status: 500 });
+    }
+
+    if (!circle) {
       return NextResponse.json({ error: "Circle not found" }, { status: 404 });
     }
 
-    const circle = circleRes.rows[0];
-
-    if (circle.owner_auth_id !== user.id) {
-      await client.query("ROLLBACK");
+    if (circle.owner_auth_id !== authUserId) {
       return NextResponse.json(
         { error: "Only the circle owner can execute payout" },
         { status: 403 }
       );
     }
 
-    // 2) Lock payout schedule row for this cycle
-    const scheduleRes = await client.query(
-      `
-      select id, recipient_user_id, status
-      from public.payout_schedule
-      where circle_id = $1 and cycle_no = $2
-      for update
-      `,
-      [circleId, cycleNo]
-    );
+    // 2) Load payout schedule row for this cycle
+    const { data: schedule, error: scheduleError } = await supabaseAdmin
+      .from("payout_schedule")
+      .select("id, circle_id, cycle_no, recipient_user_id, status")
+      .eq("circle_id", circleId)
+      .eq("cycle_no", cycleNo)
+      .maybeSingle();
 
-    if (!scheduleRes.rowCount) {
-      await client.query("ROLLBACK");
+    if (scheduleError) {
+      return NextResponse.json({ error: scheduleError.message }, { status: 500 });
+    }
+
+    if (!schedule) {
       return NextResponse.json(
         { error: "Payout schedule not found for this cycle" },
         { status: 404 }
       );
     }
 
-    const schedule = scheduleRes.rows[0];
-
     if (schedule.status === "PAID") {
-      await client.query("ROLLBACK");
       return NextResponse.json(
         { error: "Payout already completed for this cycle" },
         { status: 409 }
@@ -99,7 +74,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     if (schedule.status !== "READY") {
-      await client.query("ROLLBACK");
       return NextResponse.json(
         { error: `Payout is not ready. Current status: ${schedule.status}` },
         { status: 400 }
@@ -107,39 +81,43 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // 3) Count approved members
-    const memberCountRes = await client.query(
-      `
-      select count(*)::int as member_count
-      from public.circle_members
-      where circle_id = $1 and status = 'APPROVED'
-      `,
-      [circleId]
-    );
+    const { data: members, error: memberError } = await supabaseAdmin
+      .from("circle_members")
+      .select("id, user_auth_id")
+      .eq("circle_id", circleId)
+      .eq("status", "APPROVED");
 
-    const memberCount = memberCountRes.rows[0]?.member_count ?? 0;
+    if (memberError) {
+      return NextResponse.json({ error: memberError.message }, { status: 500 });
+    }
+
+    const memberCount = members?.length ?? 0;
 
     if (memberCount <= 0) {
-      await client.query("ROLLBACK");
       return NextResponse.json(
         { error: "No approved members found" },
         { status: 400 }
       );
     }
 
-    // 4) Count contributions for this cycle
-    const contributionsRes = await client.query(
-      `
-      select count(*)::int as paid_count
-      from public.contributions
-      where circle_id = $1 and cycle_no = $2
-      `,
-      [circleId, cycleNo]
-    );
+    // 4) Count contributions/payments for this cycle
+    // Adjust this if your true source of payment truth is different.
+    const { data: contributions, error: contributionsError } = await supabaseAdmin
+      .from("contributions")
+      .select("id")
+      .eq("circle_id", circleId)
+      .eq("cycle_no", cycleNo);
 
-    const paidCount = contributionsRes.rows[0]?.paid_count ?? 0;
+    if (contributionsError) {
+      return NextResponse.json(
+        { error: contributionsError.message },
+        { status: 500 }
+      );
+    }
+
+    const paidCount = contributions?.length ?? 0;
 
     if (paidCount !== memberCount) {
-      await client.query("ROLLBACK");
       return NextResponse.json(
         {
           error: "Payout cannot be executed until all approved members contribute",
@@ -154,78 +132,96 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const payoutAmount = Number(circle.contribution_amount) * memberCount;
 
     if (!payoutAmount || payoutAmount <= 0) {
-      await client.query("ROLLBACK");
       return NextResponse.json(
         { error: "Invalid payout amount" },
         { status: 400 }
       );
     }
 
-    // 6) Insert payout row
-    const payoutInsertRes = await client.query(
-      `
-      insert into public.payouts
-        (circle_id, cycle_no, recipient_user_id, amount, status)
-      values
-        ($1, $2, $3, $4, 'COMPLETED')
-      returning *
-      `,
-      [circleId, cycleNo, schedule.recipient_user_id, payoutAmount]
-    );
+    // 6) Prevent duplicate payout for same circle/cycle
+    const { data: existingPayout, error: existingPayoutError } = await supabaseAdmin
+      .from("payouts")
+      .select("id")
+      .eq("circle_id", circleId)
+      .eq("cycle_no", cycleNo)
+      .maybeSingle();
 
-    const payout = payoutInsertRes.rows[0];
-
-    // 7) Mark schedule as paid
-    await client.query(
-      `
-      update public.payout_schedule
-      set status = 'PAID'
-      where id = $1
-      `,
-      [schedule.id]
-    );
-
-    // 8) Audit log
-    await client.query(
-      `
-      insert into public.audit_logs
-        (actor_user_id, action_type, circle_id, target_id, metadata)
-      values
-        ($1, 'PAYOUT_EXECUTED', $2, $3, $4::jsonb)
-      `,
-      [
-        user.id,
-        circleId,
-        payout.id,
-        JSON.stringify({
-          cycleNo,
-          recipientUserId: schedule.recipient_user_id,
-          amount: payoutAmount,
-          memberCount,
-          executionMode: "transaction_for_update",
-        }),
-      ]
-    );
-
-    await client.query("COMMIT");
-
-    // 9) Post-commit notification
-    try {
-      await pool.query(
-        `
-        insert into public.notifications
-          (user_auth_id, title, message, read, created_at)
-        values
-          ($1, $2, $3, false, now())
-        `,
-        [
-          schedule.recipient_user_id,
-          "Payout Completed",
-          `Your payout for cycle ${cycleNo} in circle "${circle.name}" has been completed.`,
-        ]
+    if (existingPayoutError) {
+      return NextResponse.json(
+        { error: existingPayoutError.message },
+        { status: 500 }
       );
-    } catch (notificationError) {
-      console.error("Notification creation failed after commit:", notificationError);
+    }
+
+    if (existingPayout) {
+      return NextResponse.json(
+        { error: "Duplicate payout prevented by database constraint" },
+        { status: 409 }
+      );
+    }
+
+    // 7) Insert payout row
+    const { data: payout, error: payoutInsertError } = await supabaseAdmin
+      .from("payouts")
+      .insert({
+        circle_id: circleId,
+        cycle_no: cycleNo,
+        recipient_user_id: schedule.recipient_user_id,
+        amount: payoutAmount,
+        status: "COMPLETED",
+      })
+      .select("*")
+      .single();
+
+    if (payoutInsertError || !payout) {
+      return NextResponse.json(
+        { error: payoutInsertError?.message || "Failed to create payout" },
+        { status: 500 }
+      );
+    }
+
+    // 8) Mark payout schedule as PAID
+    const { error: scheduleUpdateError } = await supabaseAdmin
+      .from("payout_schedule")
+      .update({ status: "PAID" })
+      .eq("id", schedule.id);
+
+    if (scheduleUpdateError) {
+      return NextResponse.json(
+        { error: scheduleUpdateError.message },
+        { status: 500 }
+      );
+    }
+
+    // 9) Audit log
+    const { error: auditError } = await supabaseAdmin.from("audit_logs").insert({
+      actor_user_id: authUserId,
+      action_type: "PAYOUT_EXECUTED",
+      circle_id: circleId,
+      target_id: String(payout.id),
+      metadata: {
+        cycleNo,
+        recipientUserId: schedule.recipient_user_id,
+        amount: payoutAmount,
+        memberCount,
+        executionMode: "supabase-admin",
+      },
+    });
+
+    if (auditError) {
+      console.error("Audit log insert failed:", auditError);
+    }
+
+    // 10) Notification
+    const { error: notifError } = await supabaseAdmin.from("notifications").insert({
+      user_auth_id: schedule.recipient_user_id,
+      title: "Payout Completed",
+      message: `Your payout for cycle ${cycleNo} in circle "${circle.name}" has been completed.`,
+      read: false,
+    });
+
+    if (notifError) {
+      console.error("Notification creation failed:", notifError);
     }
 
     return NextResponse.json(
@@ -235,24 +231,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
       { status: 201 }
     );
-  } catch (error: any) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {}
-
-    if (error?.code === "23505") {
-      return NextResponse.json(
-        { error: "Duplicate payout prevented by database constraint" },
-        { status: 409 }
-      );
-    }
-
-    console.error("POST /api/circles/[id]/payouts error:", error);
+  } catch (error) {
     return NextResponse.json(
-      { error: error?.message || "Server error" },
-      { status: 500 }
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to execute payout.",
+      },
+      { status: 401 }
     );
-  } finally {
-    client.release();
   }
 }

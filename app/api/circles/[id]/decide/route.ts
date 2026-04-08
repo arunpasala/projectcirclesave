@@ -47,7 +47,7 @@ export async function POST(
     }
 
     if (circle.owner_auth_id !== authUserId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const nextStatus = action === "APPROVE" ? "APPROVED" : "REJECTED";
