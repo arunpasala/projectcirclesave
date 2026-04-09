@@ -11,7 +11,13 @@ export function JoinCircleButton({ circleId }: { circleId: number }) {
       onClick={() =>
         startTransition(async () => {
           const res = await joinCircleAction(circleId);
-          alert(res.ok ? res.message : res.error);
+          if (res.ok) {
+  alert(res.message ?? "Request completed successfully.");
+} else {
+  alert(res.error ?? "Request failed.");
+}
+          
+          
         })
       }
       disabled={pending}
