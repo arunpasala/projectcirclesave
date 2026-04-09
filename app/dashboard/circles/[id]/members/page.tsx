@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import {
+  DashboardShell,
+  Section,
+  GlassCard,
+  Badge,
+} from "@/components/ui/dashboard-shell";
 
 type Member = {
   id: number;
@@ -42,10 +48,6 @@ function parseJwt(token: string): JwtPayload | null {
   } catch {
     return null;
   }
-}
-
-function cls(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
 }
 
 export default function MembersPage() {
@@ -96,7 +98,6 @@ export default function MembersPage() {
 
     try {
       const res = await fetch(`/api/circles/${circleId}/members`, {
-        method: "GET",
         headers: authHeaders,
       });
 
@@ -123,81 +124,79 @@ export default function MembersPage() {
 
   if (loadingAuth || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
-          <p className="mt-4 text-sm text-slate-500">Loading members…</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-black">
+        <p className="text-white/60">Loading members...</p>
       </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-6">
-          <Link
-            href={`/dashboard/circles/${circleId}`}
-            className="text-sm text-emerald-700 hover:text-emerald-600"
-          >
-            ← Back to Circle
-          </Link>
+    <DashboardShell
+      title="Members"
+      subtitle={
+        isOwner
+          ? "View and manage all members"
+          : "Only approved members are visible"
+      }
+      userLabel="Arun"
+      actions={
+        <Link
+          href={`/dashboard/circles/${circleId}`}
+          className="rounded-xl px-3 py-2 text-xs"
+          style={{
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.15)",
+            color: "white",
+          }}
+        >
+          ← Back
+        </Link>
+      }
+    >
+      {err && <div className="text-rose-300 text-sm mb-4">{err}</div>}
 
-          <h1 className="mt-2 text-3xl font-bold">Members</h1>
-          <p className="text-sm text-slate-500">
-            {isOwner
-              ? "You can view all members including pending requests"
-              : "Only approved members are visible"}
-          </p>
-        </div>
-
-        {err ? (
-          <div className="mb-4 rounded-xl bg-red-100 px-4 py-2 text-sm text-red-700">
-            {err}
-          </div>
-        ) : null}
-
+      <Section title="Circle Members" count={members.length}>
         {members.length === 0 ? (
-          <div className="rounded-xl bg-white p-6 text-sm text-slate-500 shadow">
-            No members found.
-          </div>
+          <GlassCard>
+            <p className="text-white/50 text-sm">No members found</p>
+          </GlassCard>
         ) : (
           <div className="space-y-4">
             {members.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center justify-between rounded-xl bg-white p-4 shadow"
-              >
-                <div>
-                  <p className="font-semibold text-slate-900">{m.name}</p>
-                  <p className="text-sm text-slate-500">{m.email}</p>
+              <GlassCard key={m.id}>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-white font-bold">{m.name}</p>
+                    <p className="text-white/50 text-sm">{m.email}</p>
 
-                  {m.joined_at ? (
-                    <p className="mt-1 text-xs text-slate-400">
-                      Joined: {new Date(m.joined_at).toLocaleString()}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="text-right">
-                  <span
-                    className={cls(
-                      "rounded-full px-3 py-1 text-xs font-semibold",
-                      m.status === "APPROVED" && "bg-green-100 text-green-700",
-                      m.status === "PENDING" && "bg-yellow-100 text-yellow-700",
-                      m.status === "REJECTED" && "bg-red-100 text-red-700"
+                    {m.joined_at && (
+                      <p className="text-white/40 text-xs">
+                        Joined {new Date(m.joined_at).toLocaleString()}
+                      </p>
                     )}
-                  >
-                    {m.status}
-                  </span>
+                  </div>
 
-                  <p className="mt-1 text-xs text-slate-400">{m.role}</p>
+                  <div className="text-right">
+                    <Badge
+                      variant={
+                        m.status === "APPROVED"
+                          ? "success"
+                          : m.status === "PENDING"
+                          ? "warning"
+                          : "danger"
+                      }
+                    >
+                      {m.status}
+                    </Badge>
+
+                    <p className="text-white/40 text-xs mt-1">{m.role}</p>
+                  </div>
                 </div>
-              </div>
+              </GlassCard>
             ))}
           </div>
         )}
-      </div>
-    </main>
+      </Section>
+    </DashboardShell>
   );
 }

@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import {
+  DashboardShell,
+  Section,
+  GlassCard,
+  Badge,
+} from "@/components/ui/dashboard-shell";
 
 type JwtPayload = {
   userId: string;
@@ -19,9 +25,6 @@ type RequestRow = {
   role: string;
   status: string;
   requested_at?: string | null;
-  joined_at?: string | null;
-  decided_at?: string | null;
-  circle_name?: string | null;
   requester?: {
     id: string;
     full_name?: string | null;
@@ -51,6 +54,25 @@ function parseJwt(token: string): JwtPayload | null {
 function cls(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
+
+const glassBtn = {
+  background: "rgba(255,255,255,0.08)",
+  border: "1px solid rgba(255,255,255,0.15)",
+  backdropFilter: "blur(8px)",
+  color: "white",
+};
+
+const approveBtn = {
+  background: "rgba(16,185,129,0.85)",
+  border: "1px solid rgba(16,185,129,0.4)",
+  color: "white",
+};
+
+const rejectBtn = {
+  background: "rgba(244,63,94,0.85)",
+  border: "1px solid rgba(244,63,94,0.4)",
+  color: "white",
+};
 
 export default function CircleRequestsPage() {
   const router = useRouter();
@@ -103,7 +125,6 @@ export default function CircleRequestsPage() {
 
     try {
       const res = await fetch(`/api/circles/${circleId}/requests`, {
-        method: "GET",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
@@ -164,68 +185,56 @@ export default function CircleRequestsPage() {
 
   if (loadingAuth || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
-          <p className="mt-4 text-sm text-slate-500">Loading requests…</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-black">
+        <p className="text-white/60">Loading requests...</p>
       </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <Link
-              href={`/dashboard/circles/${circleId}`}
-              className="text-sm font-medium text-emerald-700 hover:text-emerald-600"
-            >
-              ← Back to Circle
-            </Link>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-              Join Requests
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Review and approve pending requests
-            </p>
-          </div>
-        </div>
+    <DashboardShell
+      title="Join Requests"
+      subtitle="Review and approve pending members"
+      userLabel="Arun"
+      actions={
+        <Link
+          href={`/dashboard/circles/${circleId}`}
+          className="rounded-xl px-3 py-2 text-xs"
+          style={glassBtn}
+        >
+          ← Back
+        </Link>
+      }
+    >
+      {err && (
+        <div className="mb-4 text-rose-300 text-sm">{err}</div>
+      )}
 
-        {err ? (
-          <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {err}
-          </div>
-        ) : null}
+      {msg && (
+        <div className="mb-4 text-emerald-300 text-sm">{msg}</div>
+      )}
 
-        {msg ? (
-          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {msg}
-          </div>
-        ) : null}
-
+      <Section title="Requests" count={requests.length}>
         {requests.length === 0 ? (
-          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-            <p className="text-sm text-slate-500">No pending requests.</p>
-          </div>
+          <GlassCard>
+            <p className="text-white/50 text-sm">No pending requests</p>
+          </GlassCard>
         ) : (
           <div className="space-y-4">
             {requests.map((r) => (
-              <div
-                key={r.id}
-                className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-4">
+              <GlassCard key={r.id}>
+                <div className="flex justify-between items-start gap-4">
                   <div>
-                    <p className="text-lg font-bold text-slate-900">
-                      {r.requester?.full_name || r.requester?.email || r.user_auth_id}
+                    <p className="text-white font-bold">
+                      {r.requester?.full_name ||
+                        r.requester?.email ||
+                        r.user_auth_id}
                     </p>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="text-white/50 text-sm">
                       {r.requester?.email || "No email"}
                     </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Requested at{" "}
+                    <p className="text-white/40 text-xs">
+                      Requested{" "}
                       {r.requested_at
                         ? new Date(r.requested_at).toLocaleString()
                         : "—"}
@@ -234,37 +243,33 @@ export default function CircleRequestsPage() {
 
                   <div className="flex gap-2">
                     <button
-                      onClick={() => onDecide(r.user_auth_id, "APPROVE", r.id)}
+                      onClick={() =>
+                        onDecide(r.user_auth_id, "APPROVE", r.id)
+                      }
                       disabled={busyId === r.id}
-                      className={cls(
-                        "rounded-xl px-4 py-2 text-xs font-bold text-white",
-                        busyId === r.id
-                          ? "bg-emerald-300"
-                          : "bg-emerald-600 hover:bg-emerald-500"
-                      )}
+                      className="rounded-xl px-4 py-2 text-xs font-bold"
+                      style={approveBtn}
                     >
-                      {busyId === r.id ? "Working..." : "Approve"}
+                      {busyId === r.id ? "..." : "Approve"}
                     </button>
 
                     <button
-                      onClick={() => onDecide(r.user_auth_id, "REJECT", r.id)}
+                      onClick={() =>
+                        onDecide(r.user_auth_id, "REJECT", r.id)
+                      }
                       disabled={busyId === r.id}
-                      className={cls(
-                        "rounded-xl px-4 py-2 text-xs font-bold text-white",
-                        busyId === r.id
-                          ? "bg-rose-300"
-                          : "bg-rose-600 hover:bg-rose-500"
-                      )}
+                      className="rounded-xl px-4 py-2 text-xs font-bold"
+                      style={rejectBtn}
                     >
-                      {busyId === r.id ? "Working..." : "Reject"}
+                      {busyId === r.id ? "..." : "Reject"}
                     </button>
                   </div>
                 </div>
-              </div>
+              </GlassCard>
             ))}
           </div>
         )}
-      </div>
-    </main>
+      </Section>
+    </DashboardShell>
   );
 }

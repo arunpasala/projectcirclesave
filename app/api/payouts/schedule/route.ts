@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function shuffle<T>(items: T[]) {
   const copy = [...items];
@@ -16,28 +18,60 @@ function shuffle<T>(items: T[]) {
   return copy;
 }
 
+function getAuthUserIdFromRequest(req: NextRequest): string | null {
+  try {
+    const authHeader = req.headers.get("authorization");
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null;
+    }
+
+    const token = authHeader.slice("Bearer ".length).trim();
+    if (!token) return null;
+
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+
+    const payloadJson = Buffer.from(padded, "base64").toString("utf8");
+    const payload = JSON.parse(payloadJson) as {
+      userId?: string | number;
+      authUserId?: string;
+      sub?: string;
+      exp?: number;
+    };
+
+    console.log("TOKEN PAYLOAD:", payload);
+
+    // IMPORTANT:
+    // owner_auth_id in circles table is Supabase auth UUID,
+    // so we must use authUserId/sub, NOT numeric userId.
+    const authUserId = payload.authUserId || payload.sub || null;
+
+    if (!authUserId) return null;
+
+    if (payload.exp && Date.now() >= payload.exp * 1000) {
+      return null;
+    }
+
+    return authUserId;
+  } catch (err) {
+    console.error("TOKEN DECODE ERROR:", err);
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => req.cookies.getAll(),
-          setAll: () => {},
-        },
-      }
-    );
+    const authUserId = getAuthUserIdFromRequest(req);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+    if (!authUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const circleId = Number(body?.circle_id);
 
     if (!Number.isInteger(circleId) || circleId <= 0) {
@@ -54,7 +88,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Circle not found" }, { status: 404 });
     }
 
-    if (circle.owner_auth_id !== user.id) {
+    console.log("owner_auth_id:", circle.owner_auth_id);
+    console.log("authUserId:", authUserId);
+
+    if (circle.owner_auth_id !== authUserId) {
       return NextResponse.json(
         { error: "Only the circle owner can generate payout schedule" },
         { status: 403 }
@@ -125,11 +162,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      message: "Payout schedule generated successfully",
-      fairness_mode: fairnessMode,
-      cycles: rows.length,
-    });
+    return NextResponse.json(
+      {
+        message: "Payout schedule generated successfully",
+        fairness_mode: fairnessMode,
+        cycles: rows.length,
+      },
+      { status: 201 }
+    );
   } catch (error: any) {
     console.error("POST /api/payouts/schedule error:", error);
     return NextResponse.json(

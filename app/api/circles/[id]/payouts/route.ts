@@ -1,16 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import supabaseAdmin from "@/lib/supabase/admin";
-import { requireAuthUserId } from "@/lib/auth-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function getAuthUserIdFromRequest(req: NextRequest): string | null {
+  try {
+    const authHeader = req.headers.get("authorization");
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null;
+    }
+
+    const token = authHeader.slice("Bearer ".length).trim();
+    if (!token) return null;
+
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+
+    const payloadJson = Buffer.from(parts[1], "base64").toString("utf8");
+    const payload = JSON.parse(payloadJson) as {
+      sub?: string;
+      exp?: number;
+    };
+
+    if (!payload?.sub) return null;
+
+    if (payload.exp && Date.now() >= payload.exp * 1000) {
+      return null;
+    }
+
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authUserId = requireAuthUserId(req);
+    const authUserId = getAuthUserIdFromRequest(req);
+
+    if (!authUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await context.params;
     const circleId = Number(id);
 
@@ -101,7 +137,6 @@ export async function POST(
     }
 
     // 4) Count contributions/payments for this cycle
-    // Adjust this if your true source of payment truth is different.
     const { data: contributions, error: contributionsError } = await supabaseAdmin
       .from("contributions")
       .select("id")
@@ -237,7 +272,7 @@ export async function POST(
         error:
           error instanceof Error ? error.message : "Failed to execute payout.",
       },
-      { status: 401 }
+      { status: 500 }
     );
   }
 }

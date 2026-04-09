@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import {
+  DashboardShell,
+  Section,
+  GlassCard,
+  Badge,
+} from "@/components/ui/dashboard-shell";
 
 type CircleRow = {
   id: number;
@@ -29,7 +35,7 @@ type ScheduleRow = {
   cycle_no: number;
   recipient_user_id: string;
   schedule_position?: number;
-  status: "PENDING" | "READY" | "PAID";
+  status: "PENDING" | "OPEN" | "READY" | "PAID";
   recipient_name?: string;
   recipient_email?: string;
 };
@@ -56,6 +62,9 @@ type CyclePaymentRow = {
   payment_method: string;
   transfer_reference?: string | null;
   payment_status: "PENDING" | "SUBMITTED" | "CONFIRMED";
+  recipient_confirmed?: boolean;
+  recipient_confirmed_at?: string | null;
+  recipient_confirmed_by?: string | null;
 };
 
 type CircleDetailsResponse = {
@@ -75,9 +84,11 @@ type JwtPayload = {
   exp?: number;
 };
 
-function cls(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
-}
+type MeResponse = {
+  id: number | string;
+  email: string;
+  full_name: string;
+};
 
 function parseJwt(token: string): JwtPayload | null {
   try {
@@ -98,42 +109,15 @@ function parseJwt(token: string): JwtPayload | null {
   }
 }
 
-function Badge({
-  children,
-  color,
-}: {
-  children: React.ReactNode;
-  color: "emerald" | "blue" | "rose" | "slate" | "amber";
-}) {
-  const map = {
-    emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    blue: "bg-blue-50 text-blue-700 ring-blue-200",
-    rose: "bg-rose-50 text-rose-700 ring-rose-200",
-    slate: "bg-slate-100 text-slate-600 ring-slate-200",
-    amber: "bg-amber-50 text-amber-700 ring-amber-200",
-  };
-
-  return (
-    <span
-      className={cls(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1",
-        map[color]
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
 function statusBadge(status: string) {
-  if (status === "READY") return <Badge color="blue">READY</Badge>;
+  if (status === "READY") return <Badge color="blue">READY TO COMPLETE</Badge>;
   if (status === "PAID") return <Badge color="emerald">PAID</Badge>;
   if (status === "APPROVED") return <Badge color="emerald">APPROVED</Badge>;
   if (status === "PENDING") return <Badge color="amber">PENDING</Badge>;
   if (status === "REJECTED") return <Badge color="rose">REJECTED</Badge>;
   if (status === "OPEN") return <Badge color="amber">OPEN</Badge>;
   if (status === "COMPLETED") return <Badge color="emerald">COMPLETED</Badge>;
-  if (status === "SUBMITTED") return <Badge color="blue">SUBMITTED</Badge>;
+  if (status === "SUBMITTED") return <Badge color="blue">SENT</Badge>;
   if (status === "CONFIRMED") return <Badge color="emerald">CONFIRMED</Badge>;
   return <Badge color="slate">{status}</Badge>;
 }
@@ -147,7 +131,7 @@ function toReadableError(message: string) {
   if (message.includes("No pending payout schedule")) {
     return "Generate the payout schedule before opening a monthly cycle.";
   }
-  if (message.includes("already open")) {
+  if (message.includes("already active")) {
     return "A monthly cycle is already active for this circle.";
   }
   if (message.includes("At least two approved members")) {
@@ -156,8 +140,47 @@ function toReadableError(message: string) {
   if (message.includes("No eligible payers")) {
     return "No eligible payers were found for this cycle.";
   }
+  if (message.includes("Recipient does not need to submit payment")) {
+    return "You are the recipient for this cycle, so you do not need to send a payment.";
+  }
+  if (message.includes("Only the recipient can confirm payment receipt")) {
+    return "Only the recipient for this cycle can confirm receipt.";
+  }
+  if (message.includes("Only the circle owner can complete the cycle")) {
+    return "Only the circle owner can complete the cycle.";
+  }
+  if (message.includes("All payments must be confirmed")) {
+    return "The recipient must confirm all incoming payments before the owner can complete the cycle.";
+  }
   return message;
 }
+
+const glassBtnBase: React.CSSProperties = {
+  background: "rgba(255,255,255,0.08)",
+  border: "1px solid rgba(255,255,255,0.15)",
+  backdropFilter: "blur(8px)",
+  WebkitBackdropFilter: "blur(8px)",
+  color: "rgba(255,255,255,0.85)",
+  transition: "all 0.2s ease",
+};
+
+const emeraldBtn: React.CSSProperties = {
+  background: "rgba(16,185,129,0.85)",
+  border: "1px solid rgba(16,185,129,0.4)",
+  backdropFilter: "blur(8px)",
+  WebkitBackdropFilter: "blur(8px)",
+  color: "#fff",
+  transition: "all 0.2s ease",
+};
+
+const blueBtn: React.CSSProperties = {
+  background: "rgba(59,130,246,0.85)",
+  border: "1px solid rgba(59,130,246,0.4)",
+  backdropFilter: "blur(8px)",
+  WebkitBackdropFilter: "blur(8px)",
+  color: "#fff",
+  transition: "all 0.2s ease",
+};
 
 export default function CircleDetailPage() {
   const params = useParams();
@@ -171,7 +194,11 @@ export default function CircleDetailPage() {
   }, [params]);
 
   const [userId, setUserId] = useState("");
+  const [authUserId, setAuthUserId] = useState("");
   const [token, setToken] = useState("");
+  const [userName, setUserName] = useState("");
+  const [userEmail, setUserEmail] = useState("");
+
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [loadingData, setLoadingData] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -191,9 +218,6 @@ export default function CircleDetailPage() {
     const storedToken = localStorage.getItem("token");
     const payload = storedToken ? parseJwt(storedToken) : null;
 
-    console.log("CIRCLE_PAGE_TOKEN_EXISTS:", !!storedToken);
-    console.log("CIRCLE_PAGE_PAYLOAD:", payload);
-
     if (!storedToken || !payload?.userId) {
       router.replace("/auth/login");
       return;
@@ -208,8 +232,34 @@ export default function CircleDetailPage() {
 
     setToken(storedToken);
     setUserId(payload.userId);
+    setAuthUserId(payload.authUserId || payload.userId);
     setLoadingAuth(false);
   }, [router]);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const storedToken = localStorage.getItem("token");
+        if (!storedToken) return;
+
+        const res = await fetch("/api/auth/me", {
+          headers: {
+            Authorization: `Bearer ${storedToken}`,
+          },
+        });
+
+        if (!res.ok) return;
+
+        const data: MeResponse = await res.json();
+        setUserName(data.full_name || "");
+        setUserEmail(data.email || "");
+      } catch (error) {
+        console.error("Failed to load current user:", error);
+      }
+    };
+
+    loadUser();
+  }, []);
 
   const authHeaders = useMemo(
     () => ({
@@ -232,10 +282,9 @@ export default function CircleDetailPage() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
-      const data: CircleDetailsResponse = await res.json().catch(() => ({} as CircleDetailsResponse));
-
-      console.log("CIRCLE_PAGE_API_STATUS:", res.status);
-      console.log("CIRCLE_PAGE_API_DATA:", data);
+      const data: CircleDetailsResponse = await res
+        .json()
+        .catch(() => ({} as CircleDetailsResponse));
 
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load circle");
@@ -266,7 +315,7 @@ export default function CircleDetailPage() {
 
   const approvedMembers = members.filter((m) => m.status === "APPROVED");
   const memberCount = approvedMembers.length;
-  const isOwner = !!circle && (circle.isOwner || circle.owner_auth_id === userId);
+  const isOwner = !!circle && (circle.isOwner || circle.owner_auth_id === authUserId);
 
   const activeCycle = useMemo(
     () => cycles.find((c) => c.status === "OPEN" || c.status === "READY") || null,
@@ -286,21 +335,44 @@ export default function CircleDetailPage() {
     [schedule]
   );
 
-  const contributionCount = activeCyclePayments.filter(
+  const cycleRecipient = useMemo(() => {
+    if (!activeCycle) return null;
+    return members.find((m) => m.user_auth_id === activeCycle.recipient_user_id) || null;
+  }, [activeCycle, members]);
+
+  const isRecipient = activeCycle?.recipient_user_id === authUserId;
+  const isApprovedMember = approvedMembers.some((m) => m.user_auth_id === authUserId);
+
+  const confirmedCount = activeCyclePayments.filter(
+    (p) => p.payment_status === "CONFIRMED"
+  ).length;
+
+  const submittedCount = activeCyclePayments.filter(
     (p) => p.payment_status === "SUBMITTED" || p.payment_status === "CONFIRMED"
   ).length;
 
-  const hasSubmittedPayment = activeCyclePayments.some(
-    (p) =>
-      p.payer_user_id === userId &&
-      (p.payment_status === "SUBMITTED" || p.payment_status === "CONFIRMED")
+  const expectedPayerCount = Math.max(memberCount - 1, 0);
+
+  const myPayment = activeCyclePayments.find((p) => p.payer_user_id === authUserId);
+  const hasSubmittedPayment =
+    myPayment?.payment_status === "SUBMITTED" ||
+    myPayment?.payment_status === "CONFIRMED";
+
+  const pendingRecipientConfirmations = activeCyclePayments.filter(
+    (p) => p.payment_status === "SUBMITTED"
   );
 
-  const isRecipient = activeCycle?.recipient_user_id === userId;
+  const canGenerateSchedule = isOwner && schedule.length === 0;
   const canOpenCycle = isOwner && !activeCycle && schedule.length > 0;
   const canSubmitPayment =
-    !!activeCycle && !isRecipient && !hasSubmittedPayment && activeCycle.status === "OPEN";
-  const canCompleteCycle = isOwner && !!activeCycle && activeCycle.status === "READY";
+    !!activeCycle &&
+    activeCycle.status === "OPEN" &&
+    isApprovedMember &&
+    !isRecipient &&
+    !hasSubmittedPayment;
+
+  const canCompleteCycle =
+    isOwner && !!activeCycle && activeCycle.status === "READY";
 
   const onGenerateSchedule = async () => {
     if (id === null || !token) return;
@@ -391,6 +463,33 @@ export default function CircleDetailPage() {
     }
   };
 
+  const onConfirmReceipt = async (paymentId: number) => {
+    if (!activeCycle || !token) return;
+
+    try {
+      setBusy(true);
+      setErr("");
+      setMsg("");
+
+      const res = await fetch(`/api/cycles/${activeCycle.id}/confirm-receipt`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ payment_id: paymentId }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) throw new Error(data?.error || "Failed to confirm payment receipt");
+
+      setMsg(data?.message || "Payment receipt confirmed.");
+      await reload();
+    } catch (e: any) {
+      setErr(toReadableError(e?.message || "Failed to confirm payment receipt."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onCompleteCycle = async () => {
     if (!activeCycle || !token) return;
 
@@ -421,10 +520,16 @@ export default function CircleDetailPage() {
 
   if (loadingAuth || loadingData) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div
+        className="flex min-h-screen items-center justify-center"
+        style={{
+          background:
+            "linear-gradient(135deg, #0f172a 0%, #134e4a 50%, #0f172a 100%)",
+        }}
+      >
         <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
-          <p className="mt-4 text-sm text-slate-500">Loading circle…</p>
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-emerald-800 border-t-emerald-400" />
+          <p className="mt-4 text-sm text-white/50">Loading circle…</p>
         </div>
       </div>
     );
@@ -432,304 +537,227 @@ export default function CircleDetailPage() {
 
   if (!circle) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-4xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-          <p className="text-sm text-rose-600">
+      <DashboardShell
+        title="Circle not found"
+        subtitle="The circle may not exist or you may not have access"
+        userLabel={userName || userEmail || "User"}
+      >
+        <GlassCard>
+          <p className="text-sm text-rose-300">
             {err || "Circle not found or access denied."}
           </p>
           <Link
             href="/dashboard"
-            className="mt-4 inline-block rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            className="mt-4 inline-block rounded-xl px-4 py-2 text-sm font-semibold"
+            style={glassBtnBase}
           >
             Back to Dashboard
           </Link>
-        </div>
-      </div>
+        </GlassCard>
+      </DashboardShell>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <Link
-              href="/dashboard/circles"
-              className="text-sm font-medium text-emerald-700 hover:text-emerald-600"
-            >
-              ← Back to Circles
-            </Link>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight">{circle.name}</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              ${circle.contribution_amount}/month · Circle #{circle.id}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Fairness Mode:{" "}
-              {circle.fairness_mode === "RANDOM_FIXED"
-                ? "Randomized Fixed Rotation"
-                : "Join Order"}
-            </p>
-          </div>
+    <DashboardShell
+      title={circle.name}
+      subtitle={`$${circle.contribution_amount}/month · Circle #${circle.id}`}
+      userLabel={userName || userEmail || "User"}
+      actions={
+        <button
+          onClick={reload}
+          disabled={busy}
+          className="rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50"
+          style={glassBtnBase}
+        >
+          Refresh
+        </button>
+      }
+    >
+      <div className="mb-4">
+        <Link
+          href="/dashboard/circles"
+          className="text-sm font-medium text-emerald-400 hover:text-emerald-300"
+        >
+          ← Back to Circles
+        </Link>
+      </div>
 
-          <button
-            onClick={reload}
-            disabled={busy}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Badge color="slate">
+          Fairness Mode:{" "}
+          {circle.fairness_mode === "RANDOM_FIXED"
+            ? "Randomized Fixed Rotation"
+            : "Join Order"}
+        </Badge>
+        {isOwner ? <Badge color="emerald">Owner</Badge> : null}
+      </div>
+
+      {err ? (
+        <div
+          className="mb-4 rounded-2xl px-4 py-3 text-sm"
+          style={{
+            background: "rgba(244,63,94,0.12)",
+            border: "1px solid rgba(244,63,94,0.3)",
+            backdropFilter: "blur(12px)",
+            color: "#fda4af",
+          }}
+        >
+          {err}
+        </div>
+      ) : null}
+
+      {msg ? (
+        <div
+          className="mb-4 rounded-2xl px-4 py-3 text-sm"
+          style={{
+            background: "rgba(16,185,129,0.12)",
+            border: "1px solid rgba(16,185,129,0.3)",
+            backdropFilter: "blur(12px)",
+            color: "#6ee7b7",
+          }}
+        >
+          {msg}
+        </div>
+      ) : null}
+
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <GlassCard>
+          <p className="text-xs font-medium text-white/50">Approved Members</p>
+          <p className="mt-1 text-2xl font-extrabold text-emerald-400">{memberCount}</p>
+        </GlassCard>
+
+        <GlassCard>
+          <p className="text-xs font-medium text-white/50">Current Cycle</p>
+          <p className="mt-1 text-2xl font-extrabold text-blue-400">
+            {activeCycle?.cycle_no || currentSchedule?.cycle_no || 1}
+          </p>
+        </GlassCard>
+
+        <GlassCard>
+          <p className="text-xs font-medium text-white/50">Sent / Confirmed</p>
+          <p className="mt-1 text-2xl font-extrabold text-amber-400">
+            {submittedCount}/{expectedPayerCount}
+          </p>
+          <p className="mt-1 text-xs text-white/45">{confirmedCount} confirmed</p>
+        </GlassCard>
+
+        <GlassCard>
+          <p className="text-xs font-medium text-white/50">Cycle Status</p>
+          <div className="mt-2">
+            {activeCycle ? statusBadge(activeCycle.status) : <Badge color="slate">NO CYCLE</Badge>}
+          </div>
+        </GlassCard>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <Section
+            title="Payout Schedule"
+            subtitle="Transparent order with cycle status tracking"
           >
-            Refresh
-          </button>
-        </div>
-
-        {err ? (
-          <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {err}
-          </div>
-        ) : null}
-
-        {msg ? (
-          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {msg}
-          </div>
-        ) : null}
-
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-            <p className="text-xs font-medium text-slate-500">Approved Members</p>
-            <p className="mt-1 text-2xl font-extrabold text-emerald-600">{memberCount}</p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-            <p className="text-xs font-medium text-slate-500">Current Cycle</p>
-            <p className="mt-1 text-2xl font-extrabold text-blue-600">
-              {activeCycle?.cycle_no || currentSchedule?.cycle_no || 1}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-            <p className="text-xs font-medium text-slate-500">Payments</p>
-            <p className="mt-1 text-2xl font-extrabold text-amber-600">
-              {contributionCount}/{Math.max(memberCount - 1, 0)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-            <p className="text-xs font-medium text-slate-500">Cycle Status</p>
-            <div className="mt-2">
-              {activeCycle ? statusBadge(activeCycle.status) : <Badge color="slate">NO CYCLE</Badge>}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
-            <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold">Payout Schedule</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Transparent order with cycle status tracking
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  {isOwner && schedule.length === 0 ? (
-                    <button
-                      onClick={onGenerateSchedule}
-                      disabled={busy}
-                      className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
-                    >
-                      Generate Schedule
-                    </button>
-                  ) : null}
-
-                  {isOwner ? (
-                    <button
-                      onClick={onOpenCycle}
-                      disabled={busy || !canOpenCycle}
-                      className={cls(
-                        "rounded-xl px-4 py-2 text-xs font-bold text-white",
-                        canOpenCycle
-                          ? "bg-blue-600 hover:bg-blue-500"
-                          : "cursor-not-allowed bg-slate-300"
-                      )}
-                    >
-                      Open Monthly Cycle
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              {schedule.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-500">No payout schedule yet.</p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {schedule.map((row) => (
-                    <div
-                      key={row.id}
-                      className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold">Cycle {row.cycle_no}</p>
-                        <p className="mt-0.5 text-sm text-slate-600">
-                          Recipient: {row.recipient_name || row.recipient_email || row.recipient_user_id}
-                        </p>
-                      </div>
-                      <div>{statusBadge(row.status)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold">Members</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Approved and pending members in this circle
-                  </p>
-                </div>
-
-                <Link
-                  href={`/dashboard/circles/${circle.id}/requests`}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            <div className="mb-4 flex flex-wrap gap-2">
+              {canGenerateSchedule ? (
+                <button
+                  onClick={onGenerateSchedule}
+                  disabled={busy}
+                  className="rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-50"
+                  style={emeraldBtn}
                 >
-                  Manage Requests
-                </Link>
-              </div>
+                  Generate Schedule
+                </button>
+              ) : null}
 
+              {isOwner ? (
+                <button
+                  onClick={onOpenCycle}
+                  disabled={busy || !canOpenCycle}
+                  className="rounded-xl px-4 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={canOpenCycle ? blueBtn : glassBtnBase}
+                >
+                  Open Monthly Cycle
+                </button>
+              ) : null}
+            </div>
+
+            {schedule.length === 0 ? (
+              <p className="mt-4 text-sm text-white/50">No payout schedule yet.</p>
+            ) : (
               <div className="mt-4 space-y-3">
-                {members.map((m) => (
+                {schedule.map((row) => (
                   <div
-                    key={m.id}
-                    className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                    key={row.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500 font-semibold text-white">
-                        {getInitial(m.name, m.email)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {m.name || m.email || m.user_auth_id || "Unknown User"}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">Role: {m.role}</p>
-                      </div>
+                    <div>
+                      <p className="text-sm font-semibold text-white">Cycle {row.cycle_no}</p>
+                      <p className="mt-0.5 text-sm text-white/60">
+                        Recipient: {row.recipient_name || row.recipient_email || row.recipient_user_id}
+                      </p>
                     </div>
-                    <div>{statusBadge(m.status)}</div>
+                    <div>{statusBadge(row.status)}</div>
                   </div>
                 ))}
               </div>
-            </section>
-          </div>
+            )}
+          </Section>
 
-          <div className="space-y-6">
-            <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-lg font-bold">Current Cycle Action</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Contribute or complete the active monthly payout cycle
-              </p>
+          <Section
+            title="Members"
+            subtitle="Approved and pending members in this circle"
+          >
+            <div className="mb-4">
+              <Link
+                href={`/dashboard/circles/${circle.id}/requests`}
+                className="inline-block rounded-xl px-4 py-2 text-xs font-semibold"
+                style={glassBtnBase}
+              >
+                Manage Requests
+              </Link>
+            </div>
 
-              <div className="mt-4 space-y-4">
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
-                  <p className="text-xs font-medium text-slate-500">Cycle Recipient</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {currentSchedule?.recipient_name ||
-                      currentSchedule?.recipient_email ||
-                      activeCycle?.recipient_user_id ||
-                      "—"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
-                  <p className="text-xs font-medium text-slate-500">Contribution Amount</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">
-                    ${activeCycle?.amount_per_member || circle.contribution_amount}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
-                  <p className="text-xs font-medium text-slate-500">Payment Progress</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {contributionCount} of {Math.max(memberCount - 1, 0)} received
-                  </p>
-                </div>
-
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+            <div className="space-y-3">
+              {members.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
                 >
-                  <option value="CASH">Cash</option>
-                  <option value="BANK_TRANSFER">Bank Transfer</option>
-                </select>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="flex h-10 w-10 items-center justify-center rounded-full font-semibold text-white"
+                      style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}
+                    >
+                      {getInitial(m.name, m.email)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        {m.name || m.email || m.user_auth_id || "Unknown User"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-white/50">Role: {m.role}</p>
+                    </div>
+                  </div>
+                  <div>{statusBadge(m.status)}</div>
+                </div>
+              ))}
+            </div>
+          </Section>
 
-                <input
-                  type="text"
-                  placeholder="Transfer reference (optional)"
-                  value={transferReference}
-                  onChange={(e) => setTransferReference(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-                />
-
-                <button
-                  onClick={onSubmitPayment}
-                  disabled={busy || !canSubmitPayment}
-                  className={cls(
-                    "w-full rounded-2xl px-4 py-3 text-sm font-bold text-white",
-                    canSubmitPayment
-                      ? "bg-emerald-600 hover:bg-emerald-500"
-                      : "cursor-not-allowed bg-slate-300"
-                  )}
-                >
-                  {hasSubmittedPayment ? "Payment Submitted" : "Submit Payment"}
-                </button>
-
-                <button
-                  onClick={onCompleteCycle}
-                  disabled={busy || !canCompleteCycle}
-                  className={cls(
-                    "w-full rounded-2xl px-4 py-3 text-sm font-bold text-white",
-                    canCompleteCycle
-                      ? "bg-blue-600 hover:bg-blue-500"
-                      : "cursor-not-allowed bg-slate-300"
-                  )}
-                >
-                  Complete Cycle
-                </button>
-
-                {!isOwner ? (
-                  <p className="text-xs text-slate-500">
-                    Only the circle owner can complete the cycle.
-                  </p>
-                ) : null}
-
-                {isRecipient ? (
-                  <p className="text-xs text-amber-600">
-                    You are the recipient for this cycle and do not need to submit payment.
-                  </p>
-                ) : null}
-
-                {activeCycle?.status === "OPEN" ? (
-                  <p className="text-xs text-amber-600">
-                    Waiting for all non-recipient members to submit payment.
-                  </p>
-                ) : null}
-
-                {activeCycle?.status === "READY" ? (
-                  <p className="text-xs text-blue-600">
-                    All payments submitted. Owner can now complete the cycle.
-                  </p>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-lg font-bold">Cycle Payments</h2>
-              <p className="mt-1 text-sm text-slate-500">Payment records for the active cycle</p>
-
-              <div className="mt-4 space-y-3">
+          {activeCycle ? (
+            <Section
+              title="Cycle Payments"
+              subtitle="Professional payment workflow with recipient confirmation"
+            >
+              <div className="space-y-3">
                 {activeCyclePayments.length === 0 ? (
-                  <p className="text-sm text-slate-500">No payment records yet.</p>
+                  <p className="text-sm text-white/50">No payment records yet.</p>
                 ) : (
                   activeCyclePayments.map((p) => {
                     const payer = members.find((m) => m.user_auth_id === p.payer_user_id);
@@ -738,23 +766,195 @@ export default function CircleDetailPage() {
                     return (
                       <div
                         key={p.id}
-                        className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                        className="rounded-2xl p-4"
+                        style={{
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                        }}
                       >
-                        <p className="text-sm font-semibold">
-                          {payer?.name || payer?.email || p.payer_user_id} → {payee?.name || payee?.email || p.payee_user_id}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Amount: ${p.amount} · Method: {p.payment_method} · Status: {p.payment_status}
-                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">
+                              {payer?.name || payer?.email || p.payer_user_id} →{" "}
+                              {payee?.name || payee?.email || p.payee_user_id}
+                            </p>
+                            <p className="mt-1 text-xs text-white/50">
+                              Amount: ${p.amount} · Method: {p.payment_method}
+                              {p.transfer_reference ? ` · Ref: ${p.transfer_reference}` : ""}
+                            </p>
+                          </div>
+                          <div>{statusBadge(p.payment_status)}</div>
+                        </div>
+
+                        {isRecipient && p.payment_status === "SUBMITTED" ? (
+                          <div className="mt-3">
+                            <button
+                              onClick={() => onConfirmReceipt(p.id)}
+                              disabled={busy}
+                              className="rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-50"
+                              style={emeraldBtn}
+                            >
+                              Confirm Receipt
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {p.payment_status === "CONFIRMED" ? (
+                          <p className="mt-3 text-xs text-emerald-300">Confirmed by recipient.</p>
+                        ) : null}
                       </div>
                     );
                   })
                 )}
               </div>
-            </section>
-          </div>
+            </Section>
+          ) : null}
+        </div>
+
+        <div className="space-y-6">
+          <Section
+            title="Current Cycle Action"
+            subtitle="Clear actions based on your role in this cycle"
+          >
+            <div className="space-y-4">
+              <div
+                className="rounded-2xl p-4"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <p className="text-xs font-medium text-white/50">Cycle Recipient</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {cycleRecipient?.name ||
+                    cycleRecipient?.email ||
+                    activeCycle?.recipient_user_id ||
+                    "—"}
+                </p>
+              </div>
+
+              <div
+                className="rounded-2xl p-4"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <p className="text-xs font-medium text-white/50">Contribution Amount</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  ${activeCycle?.amount_per_member || circle.contribution_amount}
+                </p>
+              </div>
+
+              <div
+                className="rounded-2xl p-4"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <p className="text-xs font-medium text-white/50">Progress</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {submittedCount} of {expectedPayerCount} sent
+                </p>
+                <p className="mt-1 text-xs text-white/50">
+                  {confirmedCount} of {expectedPayerCount} confirmed by recipient
+                </p>
+              </div>
+
+              {canSubmitPayment ? (
+                <>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
+                  >
+                    <option value="CASH" className="text-black">Cash</option>
+                    <option value="BANK_TRANSFER" className="text-black">Bank Transfer</option>
+                  </select>
+
+                  <input
+                    type="text"
+                    placeholder="Transfer reference (optional)"
+                    value={transferReference}
+                    onChange={(e) => setTransferReference(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
+                  />
+
+                  <button
+                    onClick={onSubmitPayment}
+                    disabled={busy}
+                    className="w-full rounded-2xl px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    style={emeraldBtn}
+                  >
+                    Mark Payment Sent
+                  </button>
+                </>
+              ) : null}
+
+              {isRecipient && activeCycle ? (
+                <div
+                  className="rounded-2xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <p className="text-sm font-semibold text-white">Recipient confirmation</p>
+                  <p className="mt-1 text-xs text-white/50">
+                    Confirm each payment after you actually receive it.
+                  </p>
+                </div>
+              ) : null}
+
+              {canCompleteCycle ? (
+                <button
+                  onClick={onCompleteCycle}
+                  disabled={busy}
+                  className="w-full rounded-2xl px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  style={blueBtn}
+                >
+                  Complete Cycle
+                </button>
+              ) : null}
+
+              {!activeCycle ? (
+                <p className="text-xs text-white/50">No monthly cycle is active yet.</p>
+              ) : null}
+
+              {activeCycle?.status === "OPEN" && !isRecipient && hasSubmittedPayment ? (
+                <p className="text-xs text-blue-300">
+                  Your payment was sent. Waiting for recipient confirmation.
+                </p>
+              ) : null}
+
+              {activeCycle?.status === "OPEN" && isRecipient && pendingRecipientConfirmations.length > 0 ? (
+                <p className="text-xs text-amber-300">
+                  Please confirm receipt for submitted payments.
+                </p>
+              ) : null}
+
+              {activeCycle?.status === "READY" ? (
+                <p className="text-xs text-blue-300">
+                  All payments are confirmed. The owner can now complete this cycle.
+                </p>
+              ) : null}
+
+              {isRecipient && activeCycle?.status === "OPEN" && pendingRecipientConfirmations.length === 0 ? (
+                <p className="text-xs text-white/50">
+                  No submitted payments are waiting for your confirmation.
+                </p>
+              ) : null}
+
+              {isOwner && activeCycle?.status === "OPEN" ? (
+                <p className="text-xs text-white/50">
+                  The owner must wait until the recipient confirms all payments.
+                </p>
+              ) : null}
+            </div>
+          </Section>
         </div>
       </div>
-    </main>
+    </DashboardShell>
   );
 }
