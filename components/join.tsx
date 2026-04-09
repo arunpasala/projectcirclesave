@@ -11,10 +11,10 @@ export function JoinCircleButton({ circleId }: { circleId: number }) {
       onClick={() =>
         startTransition(async () => {
           const res = await joinCircleAction(circleId);
-          if (res.ok) {
+          if (res.ok === true) {
   alert(res.message ?? "Request completed successfully.");
 } else {
-  alert(res.error ?? "Request failed.");
+  alert("error" in res ? (res.error ?? "Request failed.") : "Request failed.");
 }
           
           

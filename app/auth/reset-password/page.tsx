@@ -1,12 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import PasswordStrength from "@/components/auth/PasswordStrength";
 
 export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResetPasswordPageContent />
+    </Suspense>
+  );
+}
+
+function ResetPasswordPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
