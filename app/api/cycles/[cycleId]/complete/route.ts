@@ -51,6 +51,14 @@ function getAuthUserIdFromRequest(req: NextRequest): string | null {
   }
 }
 
+function sumPaymentAmounts(
+  payments: Array<{ amount?: number | string | null }> | null | undefined
+) {
+  return (payments || []).reduce((sum, payment) => {
+    return sum + Number(payment?.amount || 0);
+  }, 0);
+}
+
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ cycleId: string }> }
@@ -96,6 +104,13 @@ export async function POST(
       );
     }
 
+    if (cycle.status === "COMPLETED") {
+      return NextResponse.json(
+        { error: "Cycle already completed" },
+        { status: 400 }
+      );
+    }
+
     if (cycle.status !== "READY") {
       return NextResponse.json(
         { error: `Cycle is not ready. Current status: ${cycle.status}` },
@@ -109,46 +124,35 @@ export async function POST(
       .eq("cycle_id", cycleIdNum);
 
     if (paymentsError) {
-      return NextResponse.json({ error: paymentsError.message }, { status: 500 });
+      console.error("Payments fetch failed:", paymentsError);
+      return NextResponse.json(
+        { error: "Failed to load cycle payments" },
+        { status: 500 }
+      );
     }
 
-    if (!payments || payments.length === 0) {
+    if (!Array.isArray(payments) || payments.length === 0) {
       return NextResponse.json(
         { error: "No payments found for this cycle" },
         { status: 400 }
       );
     }
 
-    const allConfirmed = payments.every((p: any) => p.payment_status === "CONFIRMED");
+    const allConfirmed = payments.every(
+      (p: any) => p?.payment_status === "CONFIRMED"
+    );
 
     if (!allConfirmed) {
       return NextResponse.json(
-        { error: "All payments must be confirmed by the recipient before completion" },
+        {
+          error:
+            "All payments must be confirmed by the recipient before completion",
+        },
         { status: 400 }
       );
     }
 
-    const { error: cycleUpdateError } = await supabase
-      .from("circle_cycles")
-      .update({
-        status: "COMPLETED",
-        closed_at: new Date().toISOString(),
-      })
-      .eq("id", cycleIdNum);
-
-    if (cycleUpdateError) {
-      return NextResponse.json({ error: cycleUpdateError.message }, { status: 500 });
-    }
-
-    const { error: scheduleUpdateError } = await supabase
-      .from("payout_schedule")
-      .update({ status: "PAID" })
-      .eq("circle_id", cycle.circle_id)
-      .eq("cycle_no", cycle.cycle_no);
-
-    if (scheduleUpdateError) {
-      return NextResponse.json({ error: scheduleUpdateError.message }, { status: 500 });
-    }
+    const totalAmount = cycle.expected_total ?? sumPaymentAmounts(payments);
 
     const { data: existingPayout, error: existingPayoutError } = await supabase
       .from("payouts")
@@ -158,17 +162,14 @@ export async function POST(
       .maybeSingle();
 
     if (existingPayoutError) {
+      console.error("Existing payout lookup failed:", existingPayoutError);
       return NextResponse.json(
-        { error: existingPayoutError.message },
+        { error: "Failed to check existing payout" },
         { status: 500 }
       );
     }
 
     if (!existingPayout) {
-      const totalAmount =
-        cycle.expected_total ??
-        payments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
-
       const { error: payoutInsertError } = await supabase.from("payouts").insert({
         circle_id: cycle.circle_id,
         cycle_no: cycle.cycle_no,
@@ -178,85 +179,128 @@ export async function POST(
       });
 
       if (payoutInsertError) {
+        console.error("Payout insert failed:", payoutInsertError);
         return NextResponse.json(
-          { error: payoutInsertError.message },
+          { error: "Failed to create payout record" },
           { status: 500 }
         );
       }
     }
 
-    const payerInvoices = payments.map((p: any) => ({
-      circle_id: cycle.circle_id,
-      cycle_id: cycle.id,
-      invoice_type: "PAYER_RECEIPT",
-      user_id: p.payer_user_id,
-      invoice_no: invoiceNo("PAY"),
-      amount: p.amount,
-      metadata: {
-        payee_user_id: p.payee_user_id,
-        payment_method: p.payment_method,
-        transfer_reference: p.transfer_reference,
-        cycle_no: cycle.cycle_no,
-      },
-    }));
+    const { error: cycleUpdateError } = await supabase
+      .from("circle_cycles")
+      .update({
+        status: "COMPLETED",
+        closed_at: new Date().toISOString(),
+      })
+      .eq("id", cycleIdNum)
+      .neq("status", "COMPLETED");
 
-    const recipientInvoice = {
-      circle_id: cycle.circle_id,
-      cycle_id: cycle.id,
-      invoice_type: "RECIPIENT_SUMMARY",
-      user_id: cycle.recipient_user_id,
-      invoice_no: invoiceNo("REC"),
-      amount:
-        cycle.expected_total ??
-        payments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0),
-      metadata: {
-        cycle_no: cycle.cycle_no,
-        month_key: cycle.month_key,
-      },
-    };
-
-    const { error: invoiceError } = await supabase
-      .from("invoices")
-      .insert([...payerInvoices, recipientInvoice]);
-
-    if (invoiceError) {
-      return NextResponse.json({ error: invoiceError.message }, { status: 500 });
+    if (cycleUpdateError) {
+      console.error("Cycle update failed:", cycleUpdateError);
+      return NextResponse.json(
+        { error: "Failed to update cycle" },
+        { status: 500 }
+      );
     }
 
-    const { error: auditError } = await supabase.from("audit_logs").insert({
-      actor_user_id: authUserId,
-      action_type: "CYCLE_COMPLETED",
-      circle_id: cycle.circle_id,
-      target_id: String(cycle.id),
-      metadata: {
-        cycleNo: cycle.cycle_no,
-        recipientUserId: cycle.recipient_user_id,
-        paymentCount: payments.length,
-      },
-    });
+    const { error: scheduleUpdateError } = await supabase
+      .from("payout_schedule")
+      .update({ status: "PAID" })
+      .eq("circle_id", cycle.circle_id)
+      .eq("cycle_no", cycle.cycle_no);
 
-    if (auditError) {
-      console.error("Audit log insert failed:", auditError);
+    if (scheduleUpdateError) {
+      console.error("Schedule update failed:", scheduleUpdateError);
+      return NextResponse.json(
+        { error: "Failed to update payout schedule" },
+        { status: 500 }
+      );
     }
 
-    const { error: notifError } = await supabase.from("notifications").insert({
-      user_auth_id: cycle.recipient_user_id,
-      title: "Cycle Completed",
-      message: `Cycle ${cycle.cycle_no} in circle "${circle.name}" has been completed.`,
-      read: false,
-    });
+    // Non-critical side effects: do not fail the whole request
+    try {
+      const payerInvoices = payments.map((p: any) => ({
+        circle_id: cycle.circle_id,
+        cycle_id: cycle.id,
+        invoice_type: "PAYER_RECEIPT",
+        user_id: p.payer_user_id,
+        invoice_no: invoiceNo("PAY"),
+        amount: Number(p?.amount || 0),
+        metadata: {
+          payee_user_id: p.payee_user_id,
+          payment_method: p.payment_method,
+          transfer_reference: p.transfer_reference,
+          cycle_no: cycle.cycle_no,
+        },
+      }));
 
-    if (notifError) {
-      console.error("Notification creation failed:", notifError);
+      const recipientInvoice = {
+        circle_id: cycle.circle_id,
+        cycle_id: cycle.id,
+        invoice_type: "RECIPIENT_SUMMARY",
+        user_id: cycle.recipient_user_id,
+        invoice_no: invoiceNo("REC"),
+        amount: totalAmount,
+        metadata: {
+          cycle_no: cycle.cycle_no,
+          month_key: cycle.month_key,
+        },
+      };
+
+      const { error: invoiceError } = await supabase
+        .from("invoices")
+        .insert([...payerInvoices, recipientInvoice]);
+
+      if (invoiceError) {
+        console.error("Invoice insert failed:", invoiceError);
+      }
+    } catch (error) {
+      console.error("Invoice generation failed:", error);
+    }
+
+    try {
+      const { error: auditError } = await supabase.from("audit_logs").insert({
+        actor_user_id: authUserId,
+        action_type: "CYCLE_COMPLETED",
+        circle_id: cycle.circle_id,
+        target_id: String(cycle.id),
+        metadata: {
+          cycleNo: cycle.cycle_no,
+          recipientUserId: cycle.recipient_user_id,
+          paymentCount: payments.length,
+        },
+      });
+
+      if (auditError) {
+        console.error("Audit log insert failed:", auditError);
+      }
+    } catch (error) {
+      console.error("Audit log failed:", error);
+    }
+
+    try {
+      const { error: notifError } = await supabase.from("notifications").insert({
+        user_auth_id: cycle.recipient_user_id,
+        title: "Cycle Completed",
+        message: `Cycle ${cycle.cycle_no} in circle "${circle.name}" has been completed.`,
+        read: false,
+      });
+
+      if (notifError) {
+        console.error("Notification creation failed:", notifError);
+      }
+    } catch (error) {
+      console.error("Notification failed:", error);
     }
 
     return NextResponse.json({
-      message: "Cycle completed and invoices generated",
+      message: "Cycle completed successfully",
     });
   } catch (error: any) {
-    console.error("POST /api/cycles/[cycleId]/complete error:", error);
+    console.error("COMPLETE CYCLE ERROR FULL:", error);
     return NextResponse.json(
-      { error: error?.message || "Server error" },
+      { error: "Unexpected server error during cycle completion" },
       { status: 500 }
     );
   }
