@@ -92,5 +92,5 @@ Install:
 ### 2. Clone Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git
+git https://github.com/arunpasala/projectcirclesave.git
 cd YOUR_REPO
