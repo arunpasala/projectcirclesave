@@ -9,6 +9,9 @@ const supabase = createClient(
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Change this if your users table stores the auth UUID under a different column name.
+const USERS_AUTH_COLUMN = "auth_user_id";
+
 function invoiceNo(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
@@ -57,6 +60,31 @@ function sumPaymentAmounts(
   return (payments || []).reduce((sum, payment) => {
     return sum + Number(payment?.amount || 0);
   }, 0);
+}
+
+function isUuid(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value
+    )
+  );
+}
+
+function isPositiveIntegerLike(value: unknown): boolean {
+  return typeof value === "number"
+    ? Number.isInteger(value) && value > 0
+    : typeof value === "string" && /^\d+$/.test(value);
+}
+
+async function findUserByAuthId(authId: string) {
+  const { data, error } = await supabase
+    .from("users")
+    .select(`id, ${USERS_AUTH_COLUMN}`)
+    .eq(USERS_AUTH_COLUMN, authId)
+    .single();
+
+  return { data, error };
 }
 
 export async function POST(
@@ -152,11 +180,11 @@ export async function POST(
       );
     }
 
-    const totalAmount = cycle.expected_total ?? sumPaymentAmounts(payments);
+    const totalAmount = Number(cycle.expected_total ?? sumPaymentAmounts(payments));
 
     const { data: existingPayout, error: existingPayoutError } = await supabase
       .from("payouts")
-      .select("id")
+      .select("circle_id, cycle_no, status")
       .eq("circle_id", cycle.circle_id)
       .eq("cycle_no", cycle.cycle_no)
       .maybeSingle();
@@ -170,18 +198,98 @@ export async function POST(
     }
 
     if (!existingPayout) {
-      const { error: payoutInsertError } = await supabase.from("payouts").insert({
+      let recipientUserId: number | null = null;
+      let recipientAuthId: string | null = null;
+
+      const rawRecipientValue =
+        cycle.recipient_auth_id ??
+        cycle.recipient_user_id ??
+        null;
+
+      if (isPositiveIntegerLike(rawRecipientValue)) {
+        recipientUserId = Number(rawRecipientValue);
+
+        const { data: recipientUser, error: recipientUserError } = await supabase
+          .from("users")
+          .select(`id, ${USERS_AUTH_COLUMN}`)
+          .eq("id", recipientUserId)
+          .single();
+
+        if (recipientUserError || !recipientUser) {
+          console.error("Recipient user lookup by id failed:", recipientUserError);
+          return NextResponse.json(
+            { error: "Recipient user record not found" },
+            { status: 500 }
+          );
+        }
+
+        recipientAuthId = recipientUser[USERS_AUTH_COLUMN] ?? null;
+      } else if (isUuid(rawRecipientValue)) {
+        recipientAuthId = String(rawRecipientValue);
+
+        const { data: recipientUser, error: recipientUserError } =
+          await findUserByAuthId(recipientAuthId);
+
+        if (recipientUserError || !recipientUser) {
+          console.error("Recipient user lookup by auth id failed:", recipientUserError);
+          return NextResponse.json(
+            {
+              error:
+                "Recipient user mapping failed. No internal user row matches the auth UUID.",
+            },
+            { status: 500 }
+          );
+        }
+
+        recipientUserId = recipientUser.id;
+      } else {
+        return NextResponse.json(
+          { error: "Invalid recipient identity on cycle record" },
+          { status: 500 }
+        );
+      }
+
+      let selectedByUserId: number | null = null;
+      let selectedByAuthId: string | null = authUserId;
+
+      const { data: actorUser, error: actorUserError } = await findUserByAuthId(authUserId);
+
+      if (actorUserError || !actorUser) {
+        console.error("Actor user lookup by auth id failed:", actorUserError);
+        return NextResponse.json(
+          {
+            error:
+              "Owner user mapping failed. No internal user row matches the auth UUID.",
+          },
+          { status: 500 }
+        );
+      }
+
+      selectedByUserId = actorUser.id;
+
+      const payoutPayload = {
         circle_id: cycle.circle_id,
         cycle_no: cycle.cycle_no,
-        recipient_user_id: cycle.recipient_user_id,
+        recipient_user_id: recipientUserId,
+        recipient_auth_id: recipientAuthId,
+        selected_by: selectedByUserId,
+        selected_by_auth_id: selectedByAuthId,
+        method: "SYSTEM",
         amount: totalAmount,
         status: "COMPLETED",
-      });
+      };
+
+      const { error: payoutInsertError } = await supabase
+        .from("payouts")
+        .insert(payoutPayload);
 
       if (payoutInsertError) {
         console.error("Payout insert failed:", payoutInsertError);
         return NextResponse.json(
-          { error: "Failed to create payout record" },
+          {
+            error: "Failed to create payout record",
+            details: payoutInsertError.message,
+          },
           { status: 500 }
         );
       }
@@ -218,7 +326,6 @@ export async function POST(
       );
     }
 
-    // Non-critical side effects: do not fail the whole request
     try {
       const payerInvoices = payments.map((p: any) => ({
         circle_id: cycle.circle_id,
@@ -239,7 +346,7 @@ export async function POST(
         circle_id: cycle.circle_id,
         cycle_id: cycle.id,
         invoice_type: "RECIPIENT_SUMMARY",
-        user_id: cycle.recipient_user_id,
+        user_id: recipientUserIdForInvoice(cycle),
         invoice_no: invoiceNo("REC"),
         amount: totalAmount,
         metadata: {
@@ -280,15 +387,24 @@ export async function POST(
     }
 
     try {
-      const { error: notifError } = await supabase.from("notifications").insert({
-        user_auth_id: cycle.recipient_user_id,
-        title: "Cycle Completed",
-        message: `Cycle ${cycle.cycle_no} in circle "${circle.name}" has been completed.`,
-        read: false,
-      });
+      const notifUserAuthId =
+        isUuid(cycle.recipient_auth_id)
+          ? cycle.recipient_auth_id
+          : isUuid(cycle.recipient_user_id)
+          ? cycle.recipient_user_id
+          : null;
 
-      if (notifError) {
-        console.error("Notification creation failed:", notifError);
+      if (notifUserAuthId) {
+        const { error: notifError } = await supabase.from("notifications").insert({
+          user_auth_id: notifUserAuthId,
+          title: "Cycle Completed",
+          message: `Cycle ${cycle.cycle_no} in circle "${circle.name}" has been completed.`,
+          read: false,
+        });
+
+        if (notifError) {
+          console.error("Notification creation failed:", notifError);
+        }
       }
     } catch (error) {
       console.error("Notification failed:", error);
@@ -304,4 +420,12 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+function recipientUserIdForInvoice(cycle: any): number | null {
+  if (typeof cycle.recipient_user_id === "number") return cycle.recipient_user_id;
+  if (typeof cycle.recipient_user_id === "string" && /^\d+$/.test(cycle.recipient_user_id)) {
+    return Number(cycle.recipient_user_id);
+  }
+  return null;
 }
