@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchMyCircles,
   fetchAllCircles,
@@ -60,6 +60,11 @@ type JwtPayload = {
   exp?: number;
 };
 
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 function cls(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -76,8 +81,7 @@ function Badge({
       "bg-emerald-500/10 text-emerald-300 ring-emerald-500/30 backdrop-blur-sm",
     blue: "bg-blue-500/10 text-blue-300 ring-blue-500/30 backdrop-blur-sm",
     rose: "bg-rose-500/10 text-rose-300 ring-rose-500/30 backdrop-blur-sm",
-    slate:
-      "bg-white/5 text-slate-300 ring-white/10 backdrop-blur-sm",
+    slate: "bg-white/5 text-slate-300 ring-white/10 backdrop-blur-sm",
     amber:
       "bg-amber-500/10 text-amber-300 ring-amber-500/30 backdrop-blur-sm",
   };
@@ -117,15 +121,20 @@ function Section({
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
         border: "1px solid rgba(255,255,255,0.12)",
-        boxShadow: "0 4px 24px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.08)",
+        boxShadow:
+          "0 4px 24px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.08)",
       }}
     >
       <button
         onClick={onToggle}
         className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition-colors duration-200"
         style={{ background: "transparent" }}
-        onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        onMouseEnter={(e) =>
+          (e.currentTarget.style.background = "rgba(255,255,255,0.04)")
+        }
+        onMouseLeave={(e) =>
+          (e.currentTarget.style.background = "transparent")
+        }
       >
         <div>
           <div className="flex items-center gap-2">
@@ -144,7 +153,10 @@ function Section({
             ) : null}
           </div>
           {subtitle ? (
-            <p className="mt-0.5 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+            <p
+              className="mt-0.5 text-xs"
+              style={{ color: "rgba(255,255,255,0.5)" }}
+            >
               {subtitle}
             </p>
           ) : null}
@@ -174,6 +186,7 @@ function Section({
         >
           {children}
         </div>
+        
       </div>
     </div>
   );
@@ -198,6 +211,453 @@ function parseJwt(token: string): JwtPayload | null {
   }
 }
 
+function ChatbotWidget({
+  myCircles,
+  allCircles,
+  requests,
+  notifications,
+  userName,
+}: {
+  myCircles: CircleRow[];
+  allCircles: CircleRow[];
+  requests: RequestRow[];
+  notifications: NotificationRow[];
+  userName: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      role: "assistant",
+      content: `Hi${userName ? ` ${userName}` : ""}, I’m CircleSave Assistant. Ask me about joining circles, requests, payouts, notifications, or dashboard status.`,
+    },
+  ]);
+
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const context = useMemo(
+    () => ({
+      myCirclesCount: myCircles.length,
+      allCirclesCount: allCircles.length,
+      pendingRequestsCount: requests.length,
+      unreadNotificationsCount: notifications.filter((n) => !n.read).length,
+      myCircleNames: myCircles.map((c) => c.name),
+      availableCircleNames: allCircles.map((c) => c.name),
+    }),
+    [myCircles, allCircles, requests, notifications]
+  );
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, open]);
+
+  const sendMessage = async () => {
+    const trimmed = input.trim();
+    if (!trimmed || sending) return;
+
+    const newUserMessage: ChatMessage = { role: "user", content: trimmed };
+    const nextMessages = [...messages, newUserMessage];
+
+    setMessages(nextMessages);
+    setInput("");
+    setSending(true);
+
+    try {
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+        },
+        body: JSON.stringify({
+          message: trimmed,
+          context,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      setMessages([
+        ...nextMessages,
+        {
+          role: "assistant",
+          content:
+            data?.reply || "Sorry, I could not process that request right now.",
+        },
+      ]);
+    } catch {
+      setMessages([
+        ...nextMessages,
+        {
+          role: "assistant",
+          content: "Something went wrong while contacting the assistant.",
+        },
+      ]);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <>
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="fixed bottom-5 right-5 z-50 rounded-full px-5 py-3 text-sm font-bold text-white shadow-2xl"
+          style={{
+            background: "linear-gradient(135deg, #10b981, #059669)",
+            border: "1px solid rgba(255,255,255,0.18)",
+            boxShadow: "0 12px 30px rgba(16,185,129,0.35)",
+          }}
+        >
+          Chat with CircleSave
+        </button>
+      ) : (
+        <div
+          className="fixed bottom-5 right-5 z-50 flex h-[560px] w-[380px] flex-col overflow-hidden rounded-3xl"
+          style={{
+            background: "rgba(15,23,42,0.82)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid rgba(255,255,255,0.14)",
+            boxShadow: "0 24px 60px rgba(0,0,0,0.35)",
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-4 py-4"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+          >
+            <div>
+              <h3 className="text-sm font-bold text-white">
+                CircleSave Assistant
+              </h3>
+              <p
+                className="text-xs"
+                style={{ color: "rgba(255,255,255,0.5)" }}
+              >
+                Help, guidance, and dashboard answers
+              </p>
+            </div>
+            <button
+              onClick={() => setOpen(false)}
+              className="rounded-xl px-3 py-1.5 text-xs font-semibold text-white"
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.12)",
+              }}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div
+                  className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6"
+                  style={
+                    msg.role === "user"
+                      ? {
+                          background: "rgba(16,185,129,0.9)",
+                          color: "#ffffff",
+                        }
+                      : {
+                          background: "rgba(255,255,255,0.08)",
+                          color: "rgba(255,255,255,0.88)",
+                          border: "1px solid rgba(255,255,255,0.10)",
+                        }
+                  }
+                >
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+
+            {sending ? (
+              <div className="flex justify-start">
+                <div
+                  className="rounded-2xl px-4 py-3 text-sm"
+                  style={{
+                    background: "rgba(255,255,255,0.08)",
+                    color: "rgba(255,255,255,0.7)",
+                    border: "1px solid rgba(255,255,255,0.10)",
+                  }}
+                >
+                  Thinking...
+                </div>
+              </div>
+            ) : null}
+
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="px-4 py-4"
+            style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}
+          >
+            <div className="mb-3 flex flex-wrap gap-2">
+              {[
+                "How do I join a circle?",
+                "Why is my cycle locked?",
+                "Who can approve requests?",
+                "What can I do on this dashboard?",
+              ].map((q) => (
+                <button
+                  key={q}
+                  onClick={() => setInput(q)}
+                  className="rounded-full px-3 py-1.5 text-[11px] font-medium text-white"
+                  style={{
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.10)",
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") sendMessage();
+                }}
+                placeholder="Ask something..."
+                className="flex-1 rounded-2xl px-4 py-3 text-sm text-white outline-none"
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                }}
+              />
+              <button
+                onClick={sendMessage}
+                disabled={sending}
+                className="rounded-2xl px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(135deg, #10b981, #059669)",
+                  border: "1px solid rgba(255,255,255,0.14)",
+                }}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+        
+      )}
+    </>
+  );
+}
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+function SmallChatbot() {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: "assistant", content: "Hi, I’m CircleSave Assistant." },
+  ]);
+  const [sending, setSending] = useState(false);
+
+  const sendMessage = async () => {
+    if (!input.trim() || sending) return;
+
+    const userMessage: ChatMessage = { role: "user", content: input };
+    const updatedMessages = [...messages, userMessage];
+
+    setMessages(updatedMessages);
+    setInput("");
+    setSending(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: input }),
+      });
+
+      const data = await res.json();
+
+      setMessages([
+        ...updatedMessages,
+        {
+          role: "assistant",
+          content: data.reply || "No response from chatbot.",
+        },
+      ]);
+    } catch {
+      setMessages([
+        ...updatedMessages,
+        {
+          role: "assistant",
+          content: "Chatbot request failed.",
+        },
+      ]);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        right: "20px",
+        bottom: "20px",
+        width: open ? "320px" : "56px",
+        height: open ? "420px" : "56px",
+        background: "#0f172a",
+        color: "white",
+        border: "1px solid #10b981",
+        borderRadius: "14px",
+        zIndex: 99999,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        overflow: "hidden",
+      }}
+    >
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          style={{
+            width: "100%",
+            height: "100%",
+            background: "#10b981",
+            color: "white",
+            border: "none",
+            cursor: "pointer",
+            fontSize: "24px",
+            fontWeight: "bold",
+          }}
+        >
+          💬
+        </button>
+      ) : (
+        <>
+          <div
+            style={{
+              padding: "10px 12px",
+              background: "#10b981",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              fontWeight: 700,
+            }}
+          >
+            <span style={{ fontSize: "14px" }}>CircleSave Chat</span>
+            <button
+              onClick={() => setOpen(false)}
+              style={{
+                background: "white",
+                color: "#10b981",
+                border: "none",
+                borderRadius: "6px",
+                padding: "2px 8px",
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          <div
+            style={{
+              height: "310px",
+              overflowY: "auto",
+              padding: "10px",
+              background: "#111827",
+            }}
+          >
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                style={{
+                  textAlign: msg.role === "user" ? "right" : "left",
+                  marginBottom: "8px",
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    maxWidth: "80%",
+                    padding: "8px 10px",
+                    borderRadius: "10px",
+                    background:
+                      msg.role === "user" ? "#10b981" : "rgba(255,255,255,0.12)",
+                    color: "white",
+                    fontSize: "13px",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {msg.content}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              padding: "10px",
+              borderTop: "1px solid rgba(255,255,255,0.08)",
+              display: "flex",
+              gap: "8px",
+              background: "#0f172a",
+            }}
+          >
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") sendMessage();
+              }}
+              placeholder="Ask..."
+              style={{
+                flex: 1,
+                padding: "8px 10px",
+                borderRadius: "8px",
+                border: "1px solid #334155",
+                background: "#1e293b",
+                color: "white",
+                outline: "none",
+                fontSize: "13px",
+              }}
+            />
+            <button
+              onClick={sendMessage}
+              style={{
+                background: "#10b981",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                padding: "8px 12px",
+                cursor: "pointer",
+                fontWeight: 700,
+                fontSize: "13px",
+              }}
+            >
+              {sending ? "..." : "Send"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -219,7 +679,9 @@ export default function DashboardPage() {
 
   const [busyJoinId, setBusyJoinId] = useState<number | null>(null);
   const [busyDecisionId, setBusyDecisionId] = useState<number | null>(null);
-  const [busyNotificationId, setBusyNotificationId] = useState<number | null>(null);
+  const [busyNotificationId, setBusyNotificationId] = useState<number | null>(
+    null
+  );
 
   const [openMy, setOpenMy] = useState(true);
   const [openAll, setOpenAll] = useState(true);
@@ -425,11 +887,17 @@ export default function DashboardPage() {
     return (
       <div
         className="flex min-h-screen items-center justify-center"
-        style={{ background: "linear-gradient(135deg, #0f172a 0%, #134e4a 50%, #0f172a 100%)" }}
+        style={{
+          background:
+            "linear-gradient(135deg, #0f172a 0%, #134e4a 50%, #0f172a 100%)",
+        }}
       >
         <div className="text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-emerald-800 border-t-emerald-400" />
-          <p className="mt-4 text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>
+          <p
+            className="mt-4 text-sm"
+            style={{ color: "rgba(255,255,255,0.5)" }}
+          >
             Loading your dashboard…
           </p>
         </div>
@@ -437,7 +905,6 @@ export default function DashboardPage() {
     );
   }
 
-  /* ─── glass button helpers (inline styles to avoid Tailwind conflicts) ─── */
   const glassBtnBase: React.CSSProperties = {
     background: "rgba(255,255,255,0.08)",
     border: "1px solid rgba(255,255,255,0.15)",
@@ -469,10 +936,10 @@ export default function DashboardPage() {
     <main
       className="min-h-screen text-white"
       style={{
-        background: "linear-gradient(135deg, #0f172a 0%, #134e4a 50%, #0f172a 100%)",
+        background:
+          "linear-gradient(135deg, #0f172a 0%, #134e4a 50%, #0f172a 100%)",
       }}
     >
-      {/* Animated background orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div
           className="absolute rounded-full"
@@ -481,7 +948,8 @@ export default function DashboardPage() {
             height: 600,
             top: -200,
             left: -150,
-            background: "radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 70%)",
+            background:
+              "radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 70%)",
             animation: "float 8s ease-in-out infinite",
           }}
         />
@@ -492,7 +960,8 @@ export default function DashboardPage() {
             height: 500,
             bottom: -100,
             right: -100,
-            background: "radial-gradient(circle, rgba(59,130,246,0.10) 0%, transparent 70%)",
+            background:
+              "radial-gradient(circle, rgba(59,130,246,0.10) 0%, transparent 70%)",
             animation: "float 10s ease-in-out infinite reverse",
           }}
         />
@@ -503,7 +972,8 @@ export default function DashboardPage() {
             height: 300,
             top: "40%",
             left: "60%",
-            background: "radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)",
+            background:
+              "radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)",
             animation: "float 12s ease-in-out infinite 2s",
           }}
         />
@@ -532,7 +1002,6 @@ export default function DashboardPage() {
         }
       `}</style>
 
-      {/* Nav */}
       <nav
         className="sticky top-0 z-30"
         style={{
@@ -566,7 +1035,10 @@ export default function DashboardPage() {
                 🔔
                 <span
                   className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white"
-                  style={{ background: "#f43f5e", boxShadow: "0 0 8px rgba(244,63,94,0.6)" }}
+                  style={{
+                    background: "#f43f5e",
+                    boxShadow: "0 0 8px rgba(244,63,94,0.6)",
+                  }}
                 >
                   {unreadCount}
                 </span>
@@ -579,11 +1051,16 @@ export default function DashboardPage() {
             >
               <div
                 className="flex h-6 w-6 items-center justify-center rounded-lg text-xs font-bold text-white"
-                style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
+                style={{
+                  background: "linear-gradient(135deg, #10b981, #059669)",
+                }}
               >
                 {(userName || userEmail || "U").charAt(0).toUpperCase()}
               </div>
-              <span className="max-w-[140px] truncate text-xs font-semibold" style={{ color: "rgba(255,255,255,0.8)" }}>
+              <span
+                className="max-w-[140px] truncate text-xs font-semibold"
+                style={{ color: "rgba(255,255,255,0.8)" }}
+              >
                 {userName || userEmail}
               </span>
             </div>
@@ -608,14 +1085,24 @@ export default function DashboardPage() {
       </nav>
 
       <div className="relative mx-auto max-w-6xl px-4 py-8">
-        {/* Header */}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4 animate-fadeIn">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-white">Dashboard</h1>
-            <p className="mt-1 text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white">
+              Dashboard
+            </h1>
+            <p
+              className="mt-1 text-sm"
+              style={{ color: "rgba(255,255,255,0.5)" }}
+            >
               Welcome back
               {userName ? (
-                <span className="font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}> {userName}</span>
+                <span
+                  className="font-semibold"
+                  style={{ color: "rgba(255,255,255,0.85)" }}
+                >
+                  {" "}
+                  {userName}
+                </span>
               ) : null}{" "}
               · Manage your savings circles
             </p>
@@ -631,13 +1118,32 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Stat cards */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            { label: "My Groups", value: myCircles.length, color: "#10b981", glow: "rgba(16,185,129,0.3)" },
-            { label: "Requested", value: pendingMine.length, color: "#3b82f6", glow: "rgba(59,130,246,0.3)" },
-            { label: "Admin Requests", value: requests.length, color: "#f59e0b", glow: "rgba(245,158,11,0.3)" },
-            { label: "Unread Notifs", value: unreadCount, color: "#f43f5e", glow: "rgba(244,63,94,0.3)" },
+            {
+              label: "My Groups",
+              value: myCircles.length,
+              color: "#10b981",
+              glow: "rgba(16,185,129,0.3)",
+            },
+            {
+              label: "Requested",
+              value: pendingMine.length,
+              color: "#3b82f6",
+              glow: "rgba(59,130,246,0.3)",
+            },
+            {
+              label: "Admin Requests",
+              value: requests.length,
+              color: "#f59e0b",
+              glow: "rgba(245,158,11,0.3)",
+            },
+            {
+              label: "Unread Notifs",
+              value: unreadCount,
+              color: "#f43f5e",
+              glow: "rgba(244,63,94,0.3)",
+            },
           ].map(({ label, value, color, glow }, i) => (
             <div
               key={label}
@@ -647,11 +1153,17 @@ export default function DashboardPage() {
                 backdropFilter: "blur(16px)",
                 WebkitBackdropFilter: "blur(16px)",
                 border: "1px solid rgba(255,255,255,0.10)",
-                boxShadow: `0 4px 20px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.04)`,
+                boxShadow:
+                  "0 4px 20px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.04)",
                 animationDelay: `${i * 60}ms`,
               }}
             >
-              <p className="text-xs font-medium" style={{ color: "rgba(255,255,255,0.5)" }}>{label}</p>
+              <p
+                className="text-xs font-medium"
+                style={{ color: "rgba(255,255,255,0.5)" }}
+              >
+                {label}
+              </p>
               <p
                 className="mt-1 text-2xl font-extrabold"
                 style={{ color, textShadow: `0 0 20px ${glow}` }}
@@ -662,7 +1174,6 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* Loading bar */}
         {dataLoading ? (
           <div
             className="mb-4 overflow-hidden rounded-full"
@@ -672,7 +1183,8 @@ export default function DashboardPage() {
               className="h-full rounded-full animate-pulse"
               style={{
                 width: "60%",
-                background: "linear-gradient(90deg, #10b981, #3b82f6, #10b981)",
+                background:
+                  "linear-gradient(90deg, #10b981, #3b82f6, #10b981)",
                 backgroundSize: "200% auto",
                 animation: "shimmer 1.5s linear infinite",
               }}
@@ -680,7 +1192,6 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        {/* Error / success banners */}
         {err ? (
           <div
             className="mb-4 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm animate-fadeIn"
@@ -709,7 +1220,6 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        {/* Sections */}
         <div className="grid gap-4">
           <Section
             title="My Groups"
@@ -719,7 +1229,10 @@ export default function DashboardPage() {
             onToggle={() => setOpenMy((v) => !v)}
           >
             {myCircles.length === 0 ? (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <p
+                className="text-sm"
+                style={{ color: "rgba(255,255,255,0.4)" }}
+              >
                 No approved circles yet. Request to join one below.
               </p>
             ) : (
@@ -735,7 +1248,10 @@ export default function DashboardPage() {
                   >
                     <div>
                       <p className="text-sm font-semibold text-white">{c.name}</p>
-                      <p className="mt-0.5 text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      <p
+                        className="mt-0.5 text-xs"
+                        style={{ color: "rgba(255,255,255,0.45)" }}
+                      >
                         ${c.contribution_amount}/month · Circle #{c.id}
                       </p>
                       <div className="mt-1">
@@ -764,7 +1280,12 @@ export default function DashboardPage() {
             onToggle={() => setOpenReq((v) => !v)}
           >
             {pendingMine.length === 0 ? (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>No pending requests.</p>
+              <p
+                className="text-sm"
+                style={{ color: "rgba(255,255,255,0.4)" }}
+              >
+                No pending requests.
+              </p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 {pendingMine.map((c) => (
@@ -779,7 +1300,10 @@ export default function DashboardPage() {
                     <p className="text-sm font-semibold text-white">
                       {c.circle_name || `Circle #${c.circle_id}`}
                     </p>
-                    <p className="mt-1 text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                    <p
+                      className="mt-1 text-xs"
+                      style={{ color: "rgba(255,255,255,0.45)" }}
+                    >
                       Requested at{" "}
                       {c.requested_at
                         ? new Date(c.requested_at).toLocaleString()
@@ -802,7 +1326,12 @@ export default function DashboardPage() {
             onToggle={() => setOpenNotif((v) => !v)}
           >
             {notifications.length === 0 ? (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>No notifications yet.</p>
+              <p
+                className="text-sm"
+                style={{ color: "rgba(255,255,255,0.4)" }}
+              >
+                No notifications yet.
+              </p>
             ) : (
               <div className="space-y-3">
                 {notifications.map((n) => (
@@ -823,9 +1352,19 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-white">{n.title}</p>
-                        <p className="mt-1 text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>{n.message}</p>
-                        <p className="mt-2 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+                        <p className="text-sm font-semibold text-white">
+                          {n.title}
+                        </p>
+                        <p
+                          className="mt-1 text-sm"
+                          style={{ color: "rgba(255,255,255,0.6)" }}
+                        >
+                          {n.message}
+                        </p>
+                        <p
+                          className="mt-2 text-xs"
+                          style={{ color: "rgba(255,255,255,0.35)" }}
+                        >
                           {new Date(n.created_at).toLocaleString()}
                         </p>
                       </div>
@@ -855,7 +1394,10 @@ export default function DashboardPage() {
             onToggle={() => setOpenAdmin((v) => !v)}
           >
             {requests.length === 0 ? (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <p
+                className="text-sm"
+                style={{ color: "rgba(255,255,255,0.4)" }}
+              >
                 No pending requests for your circles.
               </p>
             ) : (
@@ -874,20 +1416,32 @@ export default function DashboardPage() {
                         <p className="text-sm font-semibold text-white">
                           {r.circle_name || `Circle #${r.circle_id}`}
                         </p>
-                        <p className="mt-0.5 text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
+                        <p
+                          className="mt-0.5 text-sm"
+                          style={{ color: "rgba(255,255,255,0.6)" }}
+                        >
                           Requested by{" "}
                           <span className="font-medium text-white">
-                            {r.requester?.full_name || r.requester?.email || r.user_auth_id}
+                            {r.requester?.full_name ||
+                              r.requester?.email ||
+                              r.user_auth_id}
                           </span>
                         </p>
-                        <p className="mt-1 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
-                          {r.requested_at ? new Date(r.requested_at).toLocaleString() : "—"}
+                        <p
+                          className="mt-1 text-xs"
+                          style={{ color: "rgba(255,255,255,0.35)" }}
+                        >
+                          {r.requested_at
+                            ? new Date(r.requested_at).toLocaleString()
+                            : "—"}
                         </p>
                       </div>
 
                       <div className="flex gap-2">
                         <button
-                          onClick={() => onDecide(r.circle_id, r.user_auth_id, "APPROVE", r.id)}
+                          onClick={() =>
+                            onDecide(r.circle_id, r.user_auth_id, "APPROVE", r.id)
+                          }
                           disabled={busyDecisionId === r.id}
                           className="rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-50"
                           style={emeraldBtn}
@@ -896,7 +1450,9 @@ export default function DashboardPage() {
                         </button>
 
                         <button
-                          onClick={() => onDecide(r.circle_id, r.user_auth_id, "REJECT", r.id)}
+                          onClick={() =>
+                            onDecide(r.circle_id, r.user_auth_id, "REJECT", r.id)
+                          }
                           disabled={busyDecisionId === r.id}
                           className="rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-50"
                           style={roseBtn}
@@ -919,7 +1475,10 @@ export default function DashboardPage() {
             onToggle={() => setOpenAll((v) => !v)}
           >
             {visibleAllCircles.length === 0 ? (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <p
+                className="text-sm"
+                style={{ color: "rgba(255,255,255,0.4)" }}
+              >
                 {dataLoading ? "Loading circles…" : "No circles found."}
               </p>
             ) : (
@@ -938,7 +1497,10 @@ export default function DashboardPage() {
                       }}
                     >
                       <p className="text-sm font-semibold text-white">{c.name}</p>
-                      <p className="mt-0.5 text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      <p
+                        className="mt-0.5 text-xs"
+                        style={{ color: "rgba(255,255,255,0.45)" }}
+                      >
                         ${c.contribution_amount}/month · Circle #{c.id}
                       </p>
 
@@ -983,10 +1545,23 @@ export default function DashboardPage() {
           </Section>
         </div>
 
-        <footer className="py-10 text-center text-xs" style={{ color: "rgba(255,255,255,0.25)" }}>
+        <footer
+          className="py-10 text-center text-xs"
+          style={{ color: "rgba(255,255,255,0.25)" }}
+        >
           © {new Date().getFullYear()} CircleSave · Secure savings circle platform
         </footer>
       </div>
+
+      <ChatbotWidget
+        myCircles={myCircles}
+        allCircles={allCircles}
+        requests={requests}
+        notifications={notifications}
+        userName={userName}
+      />
+      <SmallChatbot />
     </main>
+    
   );
 }
