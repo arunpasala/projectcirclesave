@@ -474,7 +474,8 @@ function SmallChatbot() {
   const sendMessage = async () => {
     if (!input.trim() || sending) return;
 
-    const userMessage: ChatMessage = { role: "user", content: input };
+    const currentInput = input;
+    const userMessage: ChatMessage = { role: "user", content: currentInput };
     const updatedMessages = [...messages, userMessage];
 
     setMessages(updatedMessages);
@@ -487,7 +488,7 @@ function SmallChatbot() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: input }),
+        body: JSON.stringify({ message: currentInput }),
       });
 
       const data = await res.json();
@@ -513,148 +514,278 @@ function SmallChatbot() {
   };
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        right: "20px",
-        bottom: "20px",
-        width: open ? "320px" : "56px",
-        height: open ? "420px" : "56px",
-        background: "#0f172a",
-        color: "white",
-        border: "1px solid #10b981",
-        borderRadius: "14px",
-        zIndex: 99999,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-        overflow: "hidden",
-      }}
-    >
-      {!open ? (
-        <button
-          onClick={() => setOpen(true)}
-          style={{
-            width: "100%",
-            height: "100%",
-            background: "#10b981",
-            color: "white",
-            border: "none",
-            cursor: "pointer",
-            fontSize: "24px",
-            fontWeight: "bold",
-          }}
-        >
-          💬
-        </button>
-      ) : (
-        <>
-          <div
+    <>
+      <style jsx>{`
+        .cs-glass-chatbot {
+          backdrop-filter: blur(18px);
+          -webkit-backdrop-filter: blur(18px);
+          background: rgba(15, 23, 42, 0.45);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+          transition: all 0.3s ease;
+        }
+
+        .cs-glass-header {
+          background: linear-gradient(
+            135deg,
+            rgba(16, 185, 129, 0.78),
+            rgba(5, 150, 105, 0.72)
+          );
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .cs-chat-body {
+          background: linear-gradient(
+            180deg,
+            rgba(2, 6, 23, 0.35),
+            rgba(15, 23, 42, 0.18)
+          );
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
+
+        .cs-bot-bubble {
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          color: white;
+        }
+
+        .cs-user-bubble {
+          background: linear-gradient(135deg, #10b981, #059669);
+          box-shadow: 0 0 12px rgba(16, 185, 129, 0.45);
+          color: white;
+        }
+
+        .cs-chat-input {
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          color: white;
+        }
+
+        .cs-chat-input::placeholder {
+          color: rgba(255, 255, 255, 0.55);
+        }
+
+        .cs-send-btn {
+          background: linear-gradient(135deg, #10b981, #059669);
+          box-shadow: 0 0 12px rgba(16, 185, 129, 0.45);
+          color: white;
+        }
+
+        .cs-send-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 0 16px rgba(16, 185, 129, 0.55);
+        }
+
+        .cs-open-btn {
+          background: linear-gradient(135deg, #10b981, #059669);
+          box-shadow: 0 0 14px rgba(16, 185, 129, 0.45);
+          color: white;
+        }
+
+        .cs-dots {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          height: 14px;
+        }
+
+        .cs-dots span {
+          width: 6px;
+          height: 6px;
+          border-radius: 9999px;
+          background: rgba(255, 255, 255, 0.9);
+          animation: cs-bounce 1.2s infinite ease-in-out;
+        }
+
+        .cs-dots span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+
+        .cs-dots span:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+
+        @keyframes cs-bounce {
+          0%,
+          80%,
+          100% {
+            transform: scale(0.7);
+            opacity: 0.45;
+          }
+          40% {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+      `}</style>
+
+      <div
+        className="cs-glass-chatbot"
+        style={{
+          position: "fixed",
+          right: "20px",
+          bottom: "20px",
+          width: open ? "320px" : "56px",
+          height: open ? "420px" : "56px",
+          borderRadius: "16px",
+          zIndex: 99999,
+          overflow: "hidden",
+        }}
+      >
+        {!open ? (
+          <button
+            onClick={() => setOpen(true)}
+            className="cs-open-btn"
             style={{
-              padding: "10px 12px",
-              background: "#10b981",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontWeight: 700,
+              width: "100%",
+              height: "100%",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "24px",
+              fontWeight: "bold",
+              borderRadius: "16px",
             }}
           >
-            <span style={{ fontSize: "14px" }}>CircleSave Chat</span>
-            <button
-              onClick={() => setOpen(false)}
+            💬
+          </button>
+        ) : (
+          <>
+            <div
+              className="cs-glass-header"
               style={{
-                background: "white",
-                color: "#10b981",
-                border: "none",
-                borderRadius: "6px",
-                padding: "2px 8px",
-                cursor: "pointer",
+                padding: "10px 12px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
                 fontWeight: 700,
               }}
             >
-              ×
-            </button>
-          </div>
-
-          <div
-            style={{
-              height: "310px",
-              overflowY: "auto",
-              padding: "10px",
-              background: "#111827",
-            }}
-          >
-            {messages.map((msg, i) => (
-              <div
-                key={i}
+              <span style={{ fontSize: "14px", color: "white" }}>
+                CircleSave Chat
+              </span>
+              <button
+                onClick={() => setOpen(false)}
                 style={{
-                  textAlign: msg.role === "user" ? "right" : "left",
-                  marginBottom: "8px",
+                  background: "rgba(255,255,255,0.85)",
+                  color: "#059669",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "2px 8px",
+                  cursor: "pointer",
+                  fontWeight: 700,
                 }}
               >
-                <span
-                  style={{
-                    display: "inline-block",
-                    maxWidth: "80%",
-                    padding: "8px 10px",
-                    borderRadius: "10px",
-                    background:
-                      msg.role === "user" ? "#10b981" : "rgba(255,255,255,0.12)",
-                    color: "white",
-                    fontSize: "13px",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {msg.content}
-                </span>
-              </div>
-            ))}
-          </div>
+                ×
+              </button>
+            </div>
 
-          <div
-            style={{
-              padding: "10px",
-              borderTop: "1px solid rgba(255,255,255,0.08)",
-              display: "flex",
-              gap: "8px",
-              background: "#0f172a",
-            }}
-          >
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") sendMessage();
-              }}
-              placeholder="Ask..."
+            <div
+              className="cs-chat-body"
               style={{
-                flex: 1,
-                padding: "8px 10px",
-                borderRadius: "8px",
-                border: "1px solid #334155",
-                background: "#1e293b",
-                color: "white",
-                outline: "none",
-                fontSize: "13px",
-              }}
-            />
-            <button
-              onClick={sendMessage}
-              style={{
-                background: "#10b981",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                padding: "8px 12px",
-                cursor: "pointer",
-                fontWeight: 700,
-                fontSize: "13px",
+                height: "310px",
+                overflowY: "auto",
+                padding: "10px",
               }}
             >
-              {sending ? "..." : "Send"}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+              {messages.map((msg, i) => (
+                <div
+                  key={i}
+                  style={{
+                    textAlign: msg.role === "user" ? "right" : "left",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <span
+                    className={
+                      msg.role === "user" ? "cs-user-bubble" : "cs-bot-bubble"
+                    }
+                    style={{
+                      display: "inline-block",
+                      maxWidth: "80%",
+                      padding: "8px 10px",
+                      borderRadius: "12px",
+                      fontSize: "13px",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {msg.content}
+                  </span>
+                </div>
+              ))}
+
+              {sending && (
+                <div style={{ textAlign: "left", marginBottom: "8px" }}>
+                  <span
+                    className="cs-bot-bubble"
+                    style={{
+                      display: "inline-block",
+                      padding: "10px 12px",
+                      borderRadius: "12px",
+                    }}
+                  >
+                    <span className="cs-dots">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </span>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                padding: "10px",
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                display: "flex",
+                gap: "8px",
+                background: "rgba(15, 23, 42, 0.35)",
+                backdropFilter: "blur(10px)",
+                WebkitBackdropFilter: "blur(10px)",
+              }}
+            >
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") sendMessage();
+                }}
+                placeholder="Ask..."
+                className="cs-chat-input"
+                style={{
+                  flex: 1,
+                  padding: "8px 10px",
+                  borderRadius: "10px",
+                  outline: "none",
+                  fontSize: "13px",
+                }}
+              />
+              <button
+                onClick={sendMessage}
+                className="cs-send-btn"
+                style={{
+                  border: "none",
+                  borderRadius: "10px",
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                }}
+              >
+                {sending ? "..." : "Send"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
