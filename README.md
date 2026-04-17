@@ -1,212 +1,96 @@
-💰 CircleSave — Secure Digital Savings Circles (ROSCA)
+# 💰 CircleSave – Secure Savings Circle Platform
 
-CircleSave is a full-stack web application that enables users to create and participate in digital savings circles (ROSCA) with a strong focus on security, trust, and fairness.
-The system supports authenticated users, OTP-based verification, secure contributions, and controlled payouts, designed as a graduate-level capstone project.
+CircleSave is a full-stack web application that enables users to create and manage digital savings circles (ROSCA).  
+The system focuses on **security, trust, and fairness**, ensuring transparent financial interactions among members.
 
-🎯 Project Goals
+This project is developed as part of a **Graduate Capstone (CS-685)** at Western New England University.
 
-Build a production-style full-stack system
+---
 
-Digitize savings circles with transparency and trust
+## 🚀 Features
 
-Apply security-first design principles
+### 👤 Authentication & Security
+- User signup & login
+- JWT-based authentication
+- OTP email verification
+- Protected API routes
+- Role-based access control (RBAC)
 
-Demonstrate graduate-level system design, threat modeling, and validation
+### 👥 Circle Management
+- Create savings circles
+- Join requests & owner approvals
+- Member role management (Owner / Member)
 
-🧱 System Architecture
-Next.js (Frontend)
-↓
-Next.js API Routes (Backend)
-↓
-PostgreSQL (Docker)
+### 💵 Financial Workflows
+- Contribution tracking
+- Payment confirmation system
+- Automated payout scheduling
+- Cycle completion validation
 
-Key Characteristics
+### 🔔 Notifications
+- Real-time notifications for:
+  - Join requests
+  - Approvals
+  - Cycle updates
 
-API-driven architecture
+### 🔐 Security & Trust (Capstone Focus)
+- Backend validation of all critical actions
+- Prevention of unauthorized access
+- Enforcement of contribution rules
+- Audit logging for system actions
+- Failure case testing (invalid actions, duplicate attempts)
 
-JWT-based authentication
+---
 
-OTP verification for trust
+## 🧠 Project Focus
 
-Database-enforced integrity
+This project emphasizes:
 
-Role-aware access control
+- Security validation (not just UI behavior)
+- Trust enforcement in financial workflows
+- Fairness in payout mechanisms
+- Backend-driven system integrity
 
-🛠 Tech Stack
-Frontend
+---
 
-Next.js (App Router)
+## 🏗️ Tech Stack
 
-TypeScript
+### Frontend
+- Next.js
+- React
+- Tailwind CSS
 
-CSS (custom styling)
+### Backend
+- Next.js API Routes (Node.js)
+- TypeScript
 
-Backend
+### Database
+- PostgreSQL
+- Supabase
 
-Next.js API Routes
+### Authentication & Security
+- JWT (jsonwebtoken)
+- bcryptjs
 
-JWT Authentication
+### Email Services
+- Nodemailer (OTP verification)
 
-bcrypt for password hashing
+---
 
-OTP generation & verification
+## 📦 Installation & Setup
 
-Database
+### 1. Prerequisites
 
-PostgreSQL 16
+Install:
 
-Running via Docker
+- Node.js (v18+)
+- Git
+- PostgreSQL (if using local DB)
 
-SQL-enforced constraints
+---
 
-🔐 Security Features
+### 2. Clone Repository
 
-Password hashing using bcrypt
-
-JWT-based session authentication
-
-OTP verification for account activation
-
-Authorization middleware for protected routes
-
-Database-level integrity constraints
-
-Explicit trust boundaries between client, API, and database
-
-✨ Core Features
-✅ Authentication
-
-User signup with email & password
-
-OTP verification via email
-
-Secure login with JWT
-
-Logout support
-
-🔁 Savings Circles
-
-Create a savings circle
-
-Join an existing circle
-
-View circles a user belongs to
-
-Owner-based permissions
-
-📊 Dashboard
-
-User dashboard
-
-Auth-protected routes
-
-Token-based session handling
-
-🗂 Project Structure
-app/
-├── api/
-│ ├── auth/
-│ │ ├── login/
-│ │ ├── signup/
-│ │ └── otp/
-│ ├── circles/
-│ │ ├── create/
-│ │ ├── join/
-│ │ └── my/
-│ └── db-check/
-├── login/
-├── signup/
-├── dashboard/
-└── globals.css
-
-lib/
-└── auth.ts
-
-🚀 Getting Started
-1️⃣ Clone the repository
-git clone https://github.com/arunpasala/projectcirclesave.git
-cd projectcirclesave
-
-2️⃣ Install dependencies
-npm install
-
-3️⃣ Start PostgreSQL (Docker)
-docker run --name circlesave_db \
- -e POSTGRES_PASSWORD=password \
- -e POSTGRES_DB=circlesave \
- -p 5432:5432 \
- -d postgres:16
-
-4️⃣ Create database tables
-
-Connect to Postgres:
-
-docker exec -it circlesave_db psql -U postgres -d circlesave
-
-Create tables:
-
-CREATE TABLE users (
-id SERIAL PRIMARY KEY,
-email TEXT UNIQUE NOT NULL,
-full_name TEXT,
-password_hash TEXT NOT NULL,
-is_verified BOOLEAN DEFAULT FALSE,
-created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE otp_codes (
-id SERIAL PRIMARY KEY,
-user_id INT REFERENCES users(id) ON DELETE CASCADE,
-otp_hash TEXT NOT NULL,
-expires_at TIMESTAMPTZ NOT NULL,
-used BOOLEAN DEFAULT FALSE,
-created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-5️⃣ Start the app
-npm run dev
-
-Open:
-
-http://localhost:3000
-
-🧪 API Testing (Example)
-Invoke-RestMethod `  -Uri http://localhost:3000/api/auth/login`
--Method POST `  -Headers @{ "Content-Type"="application/json" }`
--Body '{"email":"test@gmail.com","password":"Pass@1234"}'
-
-📚 Academic Context
-
-Course: Graduate Capstone / Software Engineering
-
-Focus Areas:
-
-Secure system design
-
-Threat modeling (STRIDE)
-
-Trust and fairness analysis
-
-Concurrency & transaction safety
-
-Designed to support formal evaluation and reporting
-
-🔮 Planned Enhancements
-
-Contribution scheduling & enforcement
-
-Payout sequencing algorithms
-
-Fairness analysis comparison
-
-Admin analytics dashboard
-
-Rate-limiting & abuse prevention
-
-Deployment (Vercel + managed DB)
-
-👤 Author
-
-Bala Arun Pasala
-MSc Computer Science
-Aspiring Full-Stack & Security-Focused Software Engineer
+```bash
+git https://github.com/arunpasala/projectcirclesave.git
+cd YOUR_REPO
