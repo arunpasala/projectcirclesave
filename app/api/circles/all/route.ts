@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ circles: data ?? [] });
+    return NextResponse.json({ circles: data ?? [] }, { status: 200 });
   } catch (error) {
     return NextResponse.json(
       {
