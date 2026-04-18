@@ -1,83 +1,96 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
+export const dynamic = "force-dynamic";
+
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function fallbackReply(message: string) {
-  const msg = message.toLowerCase();
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  if (msg.includes("join")) {
-    return "Go to the circles section and click Request Join. The owner must approve your request.";
-  } else if (msg.includes("notification")) {
-    return "Check the notifications section on your dashboard for updates.";
-  } else if (msg.includes("request")) {
-    return "Owners can approve or reject pending join requests from their dashboard.";
-  } else if (msg.includes("schedule")) {
-    return "Only the circle owner should generate the payout schedule.";
-  } else if (msg.includes("cycle")) {
-    return "A cycle can move forward only after the current one is completed correctly.";
-  } else if (msg.includes("dashboard")) {
-    return "This dashboard helps you view circles, requests, and notifications.";
+async function createResponseWithRetry(message: string) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await client.responses.create({
+        model: "gpt-4.1-mini",
+        input: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: `
+You are CircleSave Assistant.
+
+Help users with:
+- circles
+- join requests
+- contributions
+- payouts
+- cycles
+- notifications
+
+Rules:
+- Keep answers short and clear
+- Be friendly
+- If the user asks about CircleSave features, explain them simply
+                `.trim(),
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: message,
+              },
+            ],
+          },
+        ],
+      });
+
+      return response;
+    } catch (err: any) {
+      if (err?.status === 429 && attempt < 3) {
+        await sleep(1500 * attempt);
+        continue;
+      }
+      throw err;
+    }
   }
 
-  return "I can help with CircleSave features like circles, requests, notifications, schedules, and cycle rules.";
+  throw new Error("Failed to get response from OpenAI.");
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const message = String(body?.message || "").trim();
+    console.log("CHAT BODY:", body);
 
-    if (!message) {
+    const message = body?.message;
+
+    if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json(
-        { error: "Message is required." },
+        { error: "message is required" },
         { status: 400 }
       );
     }
 
-    try {
-      const response = await client.responses.create({
-        model: "gpt-4.1-mini",
-        temperature: 0.3,
-        input: [
-          {
-            role: "system",
-            content: `
-You are CircleSave Assistant.
-You help users understand circles, requests, payouts, notifications, dashboard usage, and cycle rules.
-Do not claim to perform actions.
-Do not bypass permissions.
-Keep answers short and clear.
-            `,
-          },
-          {
-            role: "user",
-            content: message,
-          },
-        ],
-      });
+    const response = await createResponseWithRetry(message);
 
-      return NextResponse.json({
-        reply: response.output_text || fallbackReply(message),
-        source: "llm",
-      });
-    } catch (error: any) {
-      console.error("OpenAI error:", error);
-
-      return NextResponse.json({
-        reply: fallbackReply(message),
-        source: "fallback",
-        warning: "LLM quota unavailable, using fallback response.",
-      });
-    }
-  } catch (error) {
-    console.error("Chat route error:", error);
+    return NextResponse.json({
+      reply: response.output_text || "No response generated.",
+    });
+  } catch (error: any) {
+    console.error("Chat API error:", error);
 
     return NextResponse.json(
-      { error: "Failed to process chat request." },
-      { status: 500 }
+      { error: error?.message || "Server error" },
+      { status: error?.status || 500 }
     );
   }
 }
