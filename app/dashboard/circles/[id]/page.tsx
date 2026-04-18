@@ -982,7 +982,7 @@ export default function CircleDetailPage() {
           border: "1px solid rgba(59,130,246,0.35)",
         }}
       >
-        Chat
+        Open Group Chat
       </button>
 
       {chatOpen && (
