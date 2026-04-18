@@ -305,17 +305,15 @@ function ChatbotWidget({
   return (
     <>
       {!open ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-50 rounded-full px-5 py-3 text-sm font-bold text-white shadow-2xl"
-          style={{
-            background: "linear-gradient(135deg, #10b981, #059669)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            boxShadow: "0 12px 30px rgba(16,185,129,0.35)",
-          }}
-        >
-          Chat with CircleSave
-        </button>
+         <button
+    onClick={() => setOpen(true)}
+    className="fixed bottom-5 right-5 z-50 rounded-full px-4 py-3 text-white shadow-2xl"
+    style={{
+      background: "linear-gradient(135deg, #10b981, #059669)",
+    }}
+  >
+    💬
+  </button>
       ) : (
         <div
           className="fixed bottom-5 right-5 z-50 flex h-[560px] w-[380px] flex-col overflow-hidden rounded-3xl"

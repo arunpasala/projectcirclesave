@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import GroupChat from "@/components/chat/GroupChat";
 import {
   DashboardShell,
   Section,
@@ -213,6 +214,7 @@ export default function CircleDetailPage() {
   const [transferReference, setTransferReference] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     const storedToken = localStorage.getItem("token");
@@ -809,6 +811,22 @@ export default function CircleDetailPage() {
               </div>
             </Section>
           ) : null}
+
+          {/* <Section
+            title="Group Chat"
+            subtitle="Open the chat window to talk with circle members"
+          >
+            <button
+              onClick={() => setChatOpen(true)}
+              className="rounded-2xl px-4 py-3 text-sm font-semibold text-white"
+              style={{
+                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                border: "1px solid rgba(59,130,246,0.35)",
+              }}
+            >
+              Open Chat
+            </button>
+          </Section> */}
         </div>
 
         <div className="space-y-6">
@@ -955,6 +973,24 @@ export default function CircleDetailPage() {
           </Section>
         </div>
       </div>
+
+      <button
+        onClick={() => setChatOpen(true)}
+        className="fixed bottom-6 right-6 z-40 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl"
+        style={{
+          background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+          border: "1px solid rgba(59,130,246,0.35)",
+        }}
+      >
+        Chat
+      </button>
+
+      {chatOpen && (
+        <GroupChat
+          circleId={Number(id)}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </DashboardShell>
   );
 }
