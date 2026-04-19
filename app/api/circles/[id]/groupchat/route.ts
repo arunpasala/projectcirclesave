@@ -54,6 +54,32 @@ export async function GET(
       );
     }
 
+    // NEW: fetch sender names from users table using auth_user_id
+    const senderIds = [...new Set((messages ?? []).map((msg) => msg.sender_auth_id))];
+
+    const { data: users, error: usersError } = await supabaseAdmin
+      .from("users")
+      .select("auth_user_id, full_name, email")
+      .in("auth_user_id", senderIds);
+
+    if (usersError) {
+      return NextResponse.json(
+        { error: usersError.message },
+        { status: 500 }
+      );
+    }
+
+    const userMap = new Map<string, string>();
+
+    (users ?? []).forEach((user) => {
+      userMap.set(
+        user.auth_user_id,
+        user.full_name?.trim() ||
+          user.email?.split("@")[0] ||
+          shortUserLabel(user.auth_user_id)
+      );
+    });
+
     const unseenFromOthers = (messages ?? []).filter(
       (msg) =>
         msg.sender_auth_id !== userId &&
@@ -77,7 +103,9 @@ export async function GET(
 
       return {
         ...msg,
-        sender_label: shortUserLabel(msg.sender_auth_id),
+        // CHANGED: use full name from users table, fallback to short id
+        sender_label:
+          userMap.get(msg.sender_auth_id) || shortUserLabel(msg.sender_auth_id),
         seen_by: seenBy,
         delivered: msg.delivered ?? true,
       };
