@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import GroupChat from "@/components/chat/GroupChat";
+import AuditAccessLink from "@/components/audit/AuditAccessLink";
 import {
   DashboardShell,
   Section,
@@ -89,6 +90,7 @@ type MeResponse = {
   id: number | string;
   email: string;
   full_name: string;
+  role?: string;
 };
 
 function parseJwt(token: string): JwtPayload | null {
@@ -199,6 +201,7 @@ export default function CircleDetailPage() {
   const [token, setToken] = useState("");
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [loadingData, setLoadingData] = useState(true);
@@ -232,6 +235,10 @@ export default function CircleDetailPage() {
       return;
     }
 
+    if (payload?.role === "admin") {
+      setIsAdmin(true);
+    }
+
     setToken(storedToken);
     setUserId(payload.userId);
     setAuthUserId(payload.authUserId || payload.userId);
@@ -255,6 +262,7 @@ export default function CircleDetailPage() {
         const data: MeResponse = await res.json();
         setUserName(data.full_name || "");
         setUserEmail(data.email || "");
+        setIsAdmin(data.role === "admin");
       } catch (error) {
         console.error("Failed to load current user:", error);
       }
@@ -593,6 +601,12 @@ export default function CircleDetailPage() {
             : "Join Order"}
         </Badge>
         {isOwner ? <Badge color="emerald">Owner</Badge> : null}
+
+        <AuditAccessLink
+          isAdmin={isAdmin}
+          isOwner={isOwner}
+          circleId={Number(id)}
+        />
       </div>
 
       {err ? (
