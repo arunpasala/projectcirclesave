@@ -456,10 +456,7 @@ function ChatbotWidget({
     </>
   );
 }
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
+
 
 function SmallChatbot() {
   const [open, setOpen] = useState(false);
