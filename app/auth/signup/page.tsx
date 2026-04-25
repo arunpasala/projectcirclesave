@@ -73,8 +73,7 @@ export default function SignupPage() {
         return;
       }
 
-      // ✅ Fixed path — matches app/auth/otp/page.tsx
-      router.push(`/auth/otp?email=${encodeURIComponent(email)}`);
+      router.push("/auth/login");
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -174,7 +173,7 @@ export default function SignupPage() {
               Create your account
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Free to join. Active after OTP email verification.
+              Free to join. Login with OTP after account creation.
             </p>
 
             <form onSubmit={onSubmit} className="mt-7 space-y-5">
