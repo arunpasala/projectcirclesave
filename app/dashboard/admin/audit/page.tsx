@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+export const dynamic = "force-dynamic";
+
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+
 
 type JwtPayload = {
   userId: string;
@@ -44,7 +47,13 @@ type AuditResponse = {
   };
   error?: string;
 };
-
+export default function PageWrapper() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AdminAuditPage />
+    </Suspense>
+  );
+}
 function parseJwt(token: string): JwtPayload | null {
   try {
     const base64Url = token.split(".")[1];
@@ -106,8 +115,7 @@ const glassCardStyle: React.CSSProperties = {
   WebkitBackdropFilter: "blur(16px)",
   border: "1px solid rgba(255,255,255,0.10)",
 };
-
-export default function AdminAuditPage() {
+function AdminAuditPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
