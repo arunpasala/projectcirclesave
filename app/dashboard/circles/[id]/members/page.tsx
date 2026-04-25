@@ -1,202 +1,126 @@
 "use client";
 
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import {
-  DashboardShell,
-  Section,
-  GlassCard,
-  Badge,
-} from "@/components/ui/dashboard-shell";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
 type Member = {
   id: number;
-  user_auth_id: string;
-  role: string;
-  status: string;
   name: string;
   email: string;
+  status: string;
   joined_at?: string | null;
 };
 
-type ApiResponse = {
-  isOwner: boolean;
-  members: Member[];
-};
+function Badge({
+  children,
+  color,
+}: {
+  children: React.ReactNode;
+  color: "blue" | "emerald" | "rose" | "slate" | "amber";
+}) {
+  const styles = {
+    blue: "bg-blue-500/15 text-blue-300",
+    emerald: "bg-emerald-500/15 text-emerald-300",
+    rose: "bg-rose-500/15 text-rose-300",
+    slate: "bg-white/10 text-white/70",
+    amber: "bg-amber-500/15 text-amber-300",
+  };
 
-type JwtPayload = {
-  userId: string;
-  authUserId?: string;
-  exp?: number;
-};
+  return (
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-semibold ${styles[color]}`}
+    >
+      {children}
+    </span>
+  );
+}
 
-function parseJwt(token: string): JwtPayload | null {
-  try {
-    const base64Url = token.split(".")[1];
-    if (!base64Url) return null;
-
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-    const json = decodeURIComponent(
-      atob(base64)
-        .split("")
-        .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
-        .join("")
-    );
-
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
+function GlassCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-xl">
+      {children}
+    </div>
+  );
 }
 
 export default function MembersPage() {
-  const router = useRouter();
   const params = useParams();
-  const circleId = Number(params?.id);
-
-  const [token, setToken] = useState("");
-  const [loadingAuth, setLoadingAuth] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const circleId = params?.id;
 
   const [members, setMembers] = useState<Member[]>([]);
-  const [isOwner, setIsOwner] = useState(false);
-  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("token");
-    const payload = storedToken ? parseJwt(storedToken) : null;
+    const loadMembers = async () => {
+      try {
+        const token = localStorage.getItem("token");
 
-    if (!storedToken || !payload?.userId) {
-      router.replace("/auth/login");
-      return;
-    }
+        const res = await fetch(`/api/circles/${circleId}/members`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
 
-    if (payload.exp && Date.now() >= payload.exp * 1000) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      router.replace("/auth/login");
-      return;
-    }
+        const data = await res.json();
 
-    setToken(storedToken);
-    setLoadingAuth(false);
-  }, [router]);
-
-  const authHeaders = useMemo(
-    () => ({
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    }),
-    [token]
-  );
-
-  const loadMembers = async () => {
-    if (!circleId || !token) return;
-
-    setLoading(true);
-    setErr("");
-
-    try {
-      const res = await fetch(`/api/circles/${circleId}/members`, {
-        headers: authHeaders,
-      });
-
-      const data: ApiResponse = await res.json();
-
-      if (!res.ok) {
-        throw new Error((data as any)?.error || "Failed to load members");
+        setMembers(data.members || []);
+      } catch (error) {
+        console.error("Failed to load members");
+      } finally {
+        setLoading(false);
       }
+    };
 
-      setMembers(data.members || []);
-      setIsOwner(data.isOwner);
-    } catch (e: any) {
-      setErr(e?.message || "Failed to load members");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!loadingAuth && token && circleId) {
-      loadMembers();
-    }
-  }, [loadingAuth, token, circleId]);
-
-  if (loadingAuth || loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-black">
-        <p className="text-white/60">Loading members...</p>
-      </div>
-    );
-  }
+    if (circleId) loadMembers();
+  }, [circleId]);
 
   return (
-    <DashboardShell
-      title="Members"
-      subtitle={
-        isOwner
-          ? "View and manage all members"
-          : "Only approved members are visible"
-      }
-      userLabel="Arun"
-      actions={
-        <Link
-          href={`/dashboard/circles/${circleId}`}
-          className="rounded-xl px-3 py-2 text-xs"
-          style={{
-            background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(255,255,255,0.15)",
-            color: "white",
-          }}
-        >
-          ← Back
-        </Link>
-      }
-    >
-      {err && <div className="text-rose-300 text-sm mb-4">{err}</div>}
+    <div className="p-6 text-white">
+      <h1 className="mb-4 text-2xl font-bold">Circle Members</h1>
 
-      <Section title="Circle Members" count={members.length}>
-        {members.length === 0 ? (
-          <GlassCard>
-            <p className="text-white/50 text-sm">No members found</p>
-          </GlassCard>
-        ) : (
-          <div className="space-y-4">
-            {members.map((m) => (
-              <GlassCard key={m.id}>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-white font-bold">{m.name}</p>
-                    <p className="text-white/50 text-sm">{m.email}</p>
+      {loading ? (
+        <p className="text-white/50 text-sm">Loading...</p>
+      ) : members.length === 0 ? (
+        <GlassCard>
+          <p className="text-white/50 text-sm">No members found</p>
+        </GlassCard>
+      ) : (
+        <div className="space-y-4">
+          {members.map((m) => (
+            <GlassCard key={m.id}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-white font-bold">{m.name}</p>
+                  <p className="text-white/50 text-sm">{m.email}</p>
 
-                    {m.joined_at && (
-                      <p className="text-white/40 text-xs">
-                        Joined {new Date(m.joined_at).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="text-right">
-                    <Badge
-                      variant={
-                        m.status === "APPROVED"
-                          ? "success"
-                          : m.status === "PENDING"
-                          ? "warning"
-                          : "danger"
-                      }
-                    >
-                      {m.status}
-                    </Badge>
-
-                    <p className="text-white/40 text-xs mt-1">{m.role}</p>
-                  </div>
+                  {m.joined_at && (
+                    <p className="text-white/40 text-xs">
+                      Joined {new Date(m.joined_at).toLocaleString()}
+                    </p>
+                  )}
                 </div>
-              </GlassCard>
-            ))}
-          </div>
-        )}
-      </Section>
-    </DashboardShell>
+
+                <div className="text-right">
+                  {/* ✅ FIXED BADGE */}
+                  <Badge
+                    color={
+                      m.status === "APPROVED"
+                        ? "emerald"
+                        : m.status === "PENDING"
+                        ? "amber"
+                        : m.status === "REJECTED"
+                        ? "rose"
+                        : "slate"
+                    }
+                  >
+                    {m.status}
+                  </Badge>
+                </div>
+              </div>
+            </GlassCard>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

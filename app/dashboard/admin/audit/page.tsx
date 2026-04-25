@@ -72,18 +72,18 @@ function formatDate(value?: string | null) {
 function statusBadge(status?: string | null) {
   const val = status || "UNKNOWN";
 
-  if (val === "SUCCESS") {
+  if (val === "SUCCESS" || val === "success") {
     return (
       <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
-        SUCCESS
+        success
       </span>
     );
   }
 
-  if (val === "FAILED") {
+  if (val === "FAILED" || val === "failed") {
     return (
       <span className="rounded-full bg-rose-500/15 px-3 py-1 text-xs font-semibold text-rose-300">
-        FAILED
+        failed
       </span>
     );
   }
@@ -115,6 +115,7 @@ export default function AdminAuditPage() {
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
 
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [summary, setSummary] = useState({
@@ -156,9 +157,11 @@ export default function AdminAuditPage() {
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
+
     if (statusFilter) params.set("status", statusFilter);
     if (actionTypeFilter) params.set("action_type", actionTypeFilter);
     if (circleIdFilter) params.set("circle_id", circleIdFilter);
+
     params.set("limit", "100");
     return params.toString();
   }, [statusFilter, actionTypeFilter, circleIdFilter]);
@@ -199,6 +202,7 @@ export default function AdminAuditPage() {
       setCircleIds(data.filters?.circle_ids || []);
     } catch (error: any) {
       setErr(error?.message || "Failed to load audit logs");
+      setShowErrorPopup(true);
     } finally {
       setLoading(false);
     }
@@ -264,7 +268,10 @@ export default function AdminAuditPage() {
     link.href = url;
     link.setAttribute(
       "download",
-      `audit-logs-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`
+      `audit-logs-${new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-")}.csv`
     );
 
     document.body.appendChild(link);
@@ -306,28 +313,31 @@ export default function AdminAuditPage() {
           </p>
         </div>
 
-        {err ? (
-          <div className="mb-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
-            {err}
-          </div>
-        ) : null}
-
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-3xl p-5 text-white shadow-xl" style={glassCardStyle}>
+          <div
+            className="rounded-3xl p-5 text-white shadow-xl"
+            style={glassCardStyle}
+          >
             <p className="text-sm text-white/60">Total Logs</p>
             <p className="mt-2 text-3xl font-bold text-emerald-400">
               {summary.total_logs}
             </p>
           </div>
 
-          <div className="rounded-3xl p-5 text-white shadow-xl" style={glassCardStyle}>
+          <div
+            className="rounded-3xl p-5 text-white shadow-xl"
+            style={glassCardStyle}
+          >
             <p className="text-sm text-white/60">Failed Actions</p>
             <p className="mt-2 text-3xl font-bold text-rose-400">
               {summary.failed_logs}
             </p>
           </div>
 
-          <div className="rounded-3xl p-5 text-white shadow-xl" style={glassCardStyle}>
+          <div
+            className="rounded-3xl p-5 text-white shadow-xl"
+            style={glassCardStyle}
+          >
             <p className="text-sm text-white/60">Suspicious Users</p>
             <p className="mt-2 text-3xl font-bold text-amber-400">
               {summary.suspicious_users_count}
@@ -354,6 +364,12 @@ export default function AdminAuditPage() {
                 </option>
                 <option value="FAILED" className="text-black">
                   FAILED
+                </option>
+                <option value="success" className="text-black">
+                  success
+                </option>
+                <option value="failed" className="text-black">
+                  failed
                 </option>
               </select>
 
@@ -418,7 +434,8 @@ export default function AdminAuditPage() {
                           {log.actor_name} → {log.action_type}
                         </p>
                         <p className="mt-1 text-xs text-white/50">
-                          Circle: {log.circle_id ?? "—"} · Target: {log.target_id ?? "—"}
+                          Circle: {log.circle_id ?? "—"} · Target:{" "}
+                          {log.target_id ?? "—"}
                         </p>
                       </div>
 
@@ -427,16 +444,18 @@ export default function AdminAuditPage() {
 
                     <div className="grid gap-2 text-xs text-white/60 md:grid-cols-2">
                       <p>
-                        <span className="text-white/40">Time:</span> {formatDate(log.created_at)}
+                        <span className="text-white/40">Time:</span>{" "}
+                        {formatDate(log.created_at)}
                       </p>
                       <p>
-                        <span className="text-white/40">IP:</span> {log.ip_address || "—"}
+                        <span className="text-white/40">IP:</span>{" "}
+                        {log.ip_address || "—"}
                       </p>
-                      <p className="md:col-span-2 break-all">
+                      <p className="break-all md:col-span-2">
                         <span className="text-white/40">User Agent:</span>{" "}
                         {log.user_agent || "—"}
                       </p>
-                      <p className="md:col-span-2 break-all">
+                      <p className="break-all md:col-span-2">
                         <span className="text-white/40">Metadata:</span>{" "}
                         {prettyMetadata(log.metadata)}
                       </p>
@@ -456,7 +475,9 @@ export default function AdminAuditPage() {
             {loading ? (
               <p className="text-sm text-white/60">Checking patterns...</p>
             ) : suspiciousUsers.length === 0 ? (
-              <p className="text-sm text-white/60">No suspicious users detected.</p>
+              <p className="text-sm text-white/60">
+                No suspicious users detected.
+              </p>
             ) : (
               <div className="space-y-3">
                 {suspiciousUsers.map((entry, index) => (
@@ -477,6 +498,71 @@ export default function AdminAuditPage() {
           </div>
         </div>
       </div>
+
+      {showErrorPopup && err ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-md rounded-3xl border p-6 text-white shadow-2xl"
+            style={{
+              background: "rgba(15,23,42,0.94)",
+              borderColor: "rgba(244,63,94,0.35)",
+              backdropFilter: "blur(18px)",
+              WebkitBackdropFilter: "blur(18px)",
+            }}
+          >
+            <div className="mb-4 flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-500/15 text-2xl">
+                ⚠️
+              </div>
+
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  Audit Access Restricted
+                </h2>
+                <p className="mt-1 text-sm text-white/60">
+                  CircleSave could not load the requested audit logs.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-4">
+              <p className="text-sm font-medium text-rose-200">{err}</p>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-white/60">
+              Admins can view system-wide audit logs. Circle owners can view
+              only audit logs for their own circle. Open this page from a
+              circle’s <span className="font-semibold text-white">Audit Logs</span>{" "}
+              button or include a valid circle filter.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowErrorPopup(false);
+                  setErr("");
+                }}
+                className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white hover:bg-white/15"
+              >
+                Dismiss
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowErrorPopup(false);
+                  router.push("/dashboard");
+                }}
+                className="rounded-2xl px-4 py-3 text-sm font-semibold text-white"
+                style={{
+                  background: "linear-gradient(135deg, #10b981, #059669)",
+                }}
+              >
+                Back to Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
